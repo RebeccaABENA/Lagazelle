@@ -1,0 +1,71 @@
+"""Tests sur une vraie base PostgreSQL (ignorés sans GAZETTE_TEST_DATABASE_URL)."""
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from conftest import FIXTURES
+
+from gazette.db import connect
+from gazette.db.migrate import available_migrations, migrate
+from gazette.db.repository import PostgresSourceRepository
+from gazette.sources import load_sources
+
+EXPECTED_COLUMNS = [
+    "nom",
+    "type",
+    "url_flux",
+    "actif",
+    "derniere_reussite",
+    "echecs_consecutifs",
+    "etag",
+    "last_modified",
+]
+
+
+def test_migrations_are_numbered_and_versioned():
+    names = [m.name for m in available_migrations()]
+    assert names[0] == "001_create_sources.sql"
+    assert [m.version for m in available_migrations()] == sorted(
+        m.version for m in available_migrations()
+    )
+
+
+def test_migrate_creates_sources_table_once(pg_dsn):
+    with connect(pg_dsn) as conn:
+        first = migrate(conn)
+        second = migrate(conn)
+        columns = [
+            row[0]
+            for row in conn.execute(
+                """SELECT column_name FROM information_schema.columns
+                   WHERE table_schema = current_schema() AND table_name = 'sources'
+                   ORDER BY ordinal_position"""
+            )
+        ]
+        versions = [row[0] for row in conn.execute("SELECT version FROM schema_migrations")]
+    assert first == [m.name for m in available_migrations()]
+    assert second == []
+    assert columns == EXPECTED_COLUMNS
+    assert versions == [m.version for m in available_migrations()]
+
+
+def test_seed_then_state_round_trip(pg_dsn):
+    with connect(pg_dsn) as conn:
+        migrate(conn)
+    repo = PostgresSourceRepository(pg_dsn)
+    csv_sources = load_sources(FIXTURES / "sources.csv", include_inactive=True)
+
+    report = repo.seed(csv_sources)
+    assert len(report.inserted) == 4 and report.updated == []
+    assert repo.seed(csv_sources).updated == [s.name for s in csv_sources]  # idempotent
+
+    by_slug = {s.slug: s for s in repo.all()}
+    assert by_slug["source-desactivee"].active is False
+    assert by_slug["journal-regional"].consecutive_failures == 0
+
+    at = datetime(2026, 10, 21, 5, 0, tzinfo=ZoneInfo("Europe/Paris"))
+    repo.record_success("Journal Régional", at=at, etag='"v1"', last_modified="Wed, 21 Oct")
+    # Un 304 ne renvoie pas forcément les validateurs : on garde les précédents.
+    repo.record_success("Journal Régional", at=at, etag=None, last_modified=None)
+    source = repo.get("journal-regional")
+    assert (source.etag, source.last_modified, source.last_success) == ('"v1"', "Wed, 21 Oct", at)

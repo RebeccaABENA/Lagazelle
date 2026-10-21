@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import os
+import uuid
+from collections.abc import Callable, Iterator
 from datetime import date
 from pathlib import Path
 
@@ -12,6 +14,8 @@ from tenacity import wait_none
 
 from gazette.collect.fetcher import PoliteFetcher
 from gazette.config import Settings
+from gazette.db.repository import InMemorySourceRepository
+from gazette.sources import load_sources
 
 FIXTURES = Path(__file__).parent / "fixtures"
 DAY = date(2026, 10, 21)
@@ -53,6 +57,31 @@ def settings(tmp_path: Path) -> Settings:
         contact_email="test@example.org",
         domain_delay=0.5,
     )
+
+
+@pytest.fixture
+def repo() -> InMemorySourceRepository:
+    """Table `sources` simulée, amorcée depuis tests/fixtures/sources.csv."""
+    return InMemorySourceRepository(load_sources(FIXTURES / "sources.csv", include_inactive=True))
+
+
+@pytest.fixture
+def pg_dsn() -> Iterator[str]:
+    """Vraie base PostgreSQL, dans un schéma jetable. Test ignoré sans
+    GAZETTE_TEST_DATABASE_URL (fourni par la CI, ou pointant vers le postgres Docker)."""
+    psycopg = pytest.importorskip("psycopg")
+    base = os.environ.get("GAZETTE_TEST_DATABASE_URL")
+    if not base:
+        pytest.skip("GAZETTE_TEST_DATABASE_URL non défini")
+    schema = f"test_{uuid.uuid4().hex[:12]}"
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"CREATE SCHEMA {schema}")
+    separator = "&" if "?" in base else "?"
+    try:
+        yield f"{base}{separator}options=-csearch_path%3D{schema}"
+    finally:
+        with psycopg.connect(base, autocommit=True) as conn:
+            conn.execute(f"DROP SCHEMA {schema} CASCADE")
 
 
 @pytest.fixture

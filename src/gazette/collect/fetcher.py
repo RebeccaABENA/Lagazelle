@@ -4,7 +4,8 @@
 - robots.txt vérifié avant chaque flux (mis en cache par hôte pour la durée d'une collecte) ;
 - timeouts, relances avec backoff exponentiel (3 essais au plus) ;
 - pause minimale entre deux requêtes vers un même domaine ;
-- GET conditionnels (ETag / Last-Modified) mémorisés dans un fichier d'état.
+- GET conditionnels : l'appelant fournit l'ETag / Last-Modified lus en base
+  (table `sources`) et les y réenregistre après un stockage réussi.
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
@@ -28,7 +28,6 @@ from tenacity import (
 from tenacity.wait import wait_base
 
 from gazette.config import Settings
-from gazette.storage.atomic import atomic_write_json, file_lock, read_json
 
 log = logging.getLogger(__name__)
 
@@ -74,33 +73,12 @@ class FetchResult:
         return self.status == 304
 
 
-class HttpCacheState:
-    """ETag / Last-Modified par URL de flux, dans un fichier JSON partagé.
-
-    Plusieurs tâches Airflow peuvent écrire en parallèle : lecture-modification-écriture
-    sous verrou, puis écriture atomique.
-    """
-
-    def __init__(self, path: str | Path):
-        self.path = Path(path)
-
-    def get(self, url: str) -> dict:
-        return (read_json(self.path, default={}) or {}).get(url, {})
-
-    def update(self, url: str, *, etag: str | None, last_modified: str | None, at: str) -> None:
-        with file_lock(self.path):
-            data = read_json(self.path, default={}) or {}
-            data[url] = {"etag": etag, "last_modified": last_modified, "updated_at": at}
-            atomic_write_json(self.path, data)
-
-
 class PoliteFetcher:
     def __init__(
         self,
         settings: Settings,
         *,
         client: httpx.Client | None = None,
-        state: HttpCacheState | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         retry_wait: wait_base | None = None,
@@ -113,7 +91,6 @@ class PoliteFetcher:
         )
         # Le User-Agent est imposé même sur un client fourni (tests).
         self.client.headers["User-Agent"] = settings.user_agent
-        self.state = state or HttpCacheState(settings.state_dir / "http_cache.json")
         self._sleep = sleep
         self._clock = clock
         self._retry_wait = retry_wait or wait_exponential(multiplier=1, min=1, max=30)
@@ -194,18 +171,21 @@ class PoliteFetcher:
         return self._robots[base].can_fetch(ROBOTS_TOKEN, url)
 
     # -- API ----------------------------------------------------------------
-    def fetch(self, url: str, *, conditional: bool = True) -> FetchResult:
-        """Récupère un flux. Lève RobotsDisallowed ou FetchError en cas d'échec."""
+    def fetch(
+        self, url: str, *, etag: str | None = None, last_modified: str | None = None
+    ) -> FetchResult:
+        """Récupère un flux, en GET conditionnel si des validateurs sont fournis.
+
+        Lève RobotsDisallowed ou FetchError en cas d'échec.
+        """
         if not self.allowed_by_robots(url):
             raise RobotsDisallowed(url)
 
         headers: dict[str, str] = {}
-        if conditional:
-            cached = self.state.get(url)
-            if cached.get("etag"):
-                headers["If-None-Match"] = cached["etag"]
-            if cached.get("last_modified"):
-                headers["If-Modified-Since"] = cached["last_modified"]
+        if etag:
+            headers["If-None-Match"] = etag
+        if last_modified:
+            headers["If-Modified-Since"] = last_modified
 
         fetched_at = self.settings.now()
         try:
@@ -232,17 +212,3 @@ class PoliteFetcher:
             etag=response.headers.get("ETag"),
             last_modified=response.headers.get("Last-Modified"),
         )
-
-    def remember(self, result: FetchResult) -> None:
-        """Mémorise ETag / Last-Modified, à appeler une fois les items bien stockés.
-
-        Si le stockage échoue, l'état n'est pas mis à jour : la prochaine collecte
-        refera un GET complet au lieu de recevoir un 304 et de perdre des items.
-        """
-        if result.status == 200 and (result.etag or result.last_modified):
-            self.state.update(
-                result.url,
-                etag=result.etag,
-                last_modified=result.last_modified,
-                at=result.fetched_at.isoformat(),
-            )

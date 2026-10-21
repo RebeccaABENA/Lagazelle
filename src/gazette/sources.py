@@ -1,10 +1,15 @@
-"""Lecture et validation de sources.csv (séparateur `;`, UTF-8)."""
+"""Modèle Source, et lecture de sources.csv (séparateur `;`, UTF-8).
+
+Le CSV sert à amorcer la table `sources` (`python -m gazette db seed`) ; ensuite,
+la liste des sources et leur état de collecte sont lus en base.
+"""
 
 from __future__ import annotations
 
 import csv
 import re
 import unicodedata
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -27,6 +32,11 @@ class Source(BaseModel):
     conditions: str = ""
     notes: str = ""
     active: bool = True
+    # État de collecte, tenu en base (table `sources`) ; vide quand on lit le CSV.
+    last_success: datetime | None = None
+    consecutive_failures: int = 0
+    etag: str | None = None
+    last_modified: str | None = None
 
     @field_validator("type", mode="before")
     @classmethod
@@ -93,10 +103,3 @@ def load_sources(path: str | Path, *, include_inactive: bool = False) -> list[So
     if duplicates:
         raise SourcesError(f"Slugs en double dans {path} : {sorted(duplicates)}")
     return sources if include_inactive else [s for s in sources if s.active]
-
-
-def get_source(sources: list[Source], slug: str) -> Source:
-    for source in sources:
-        if source.slug == slug:
-            return source
-    raise KeyError(f"Source inconnue : {slug}")

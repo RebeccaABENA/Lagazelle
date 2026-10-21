@@ -76,18 +76,28 @@ def test_pause_between_requests_to_same_domain(web, make_fetcher):
     assert all(0 < s <= 0.5 for s in fetcher.sleeps)
 
 
-def test_conditional_get_uses_saved_etag(web, make_fetcher):
+def test_conditional_get_sends_validators_and_handles_304(web, make_fetcher):
     def feed(request):
         if request.headers.get("If-None-Match") == '"v1"':
             return httpx.Response(304)
-        return httpx.Response(200, content=b"<rss/>", headers={"ETag": '"v1"'})
+        return httpx.Response(
+            200,
+            content=b"<rss/>",
+            headers={"ETag": '"v1"', "Last-Modified": "Wed, 21 Oct 2026 03:00:00 GMT"},
+        )
 
     web.add(FEED, feed)
     fetcher = make_fetcher()
     first = fetcher.fetch(FEED)
-    assert first.status == 200
-    fetcher.remember(first)
+    assert (first.status, first.etag, first.last_modified) == (
+        200,
+        '"v1"',
+        "Wed, 21 Oct 2026 03:00:00 GMT",
+    )
 
-    second = make_fetcher().fetch(FEED)  # nouveau processus : état relu sur disque
+    second = fetcher.fetch(FEED, etag=first.etag, last_modified=first.last_modified)
     assert second.not_modified
-    assert make_fetcher().fetch(FEED, conditional=False).status == 200
+    assert second.content == b""
+    sent = web.requests[-1].headers
+    assert sent["If-None-Match"] == '"v1"'
+    assert sent["If-Modified-Since"] == "Wed, 21 Oct 2026 03:00:00 GMT"

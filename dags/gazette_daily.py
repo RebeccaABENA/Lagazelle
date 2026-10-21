@@ -35,10 +35,11 @@ def gazette_daily():
 
     @task
     def list_sources() -> list[str]:
+        from gazette.collect.runner import collectable_sources, default_repository
         from gazette.config import load_settings
-        from gazette.sources import load_sources
 
-        return [source.slug for source in load_sources(load_settings().sources_file)]
+        repo = default_repository(load_settings())
+        return [source.slug for source in collectable_sources(repo)]
 
     @task(
         retries=2,
@@ -48,15 +49,15 @@ def gazette_daily():
     )
     def collect(slug: str, day: str) -> dict:
         from gazette.collect.fetcher import PoliteFetcher
-        from gazette.collect.runner import collect_source
+        from gazette.collect.runner import collect_source, default_repository
         from gazette.config import load_settings
-        from gazette.sources import get_source, load_sources
 
         get_current_context()["source_slug"] = slug  # libellé de la tâche mappée dans l'UI
         settings = load_settings()
-        source = get_source(load_sources(settings.sources_file), slug)
+        repo = default_repository(settings)
+        source = repo.get(slug)
         with PoliteFetcher(settings) as fetcher:
-            result = collect_source(source, settings, date.fromisoformat(day), fetcher)
+            result = collect_source(source, settings, date.fromisoformat(day), fetcher, repo)
         if result.status == "failed":
             # robots.txt interdit, 404… : inutile de relancer.
             if not result.retryable:
@@ -67,10 +68,11 @@ def gazette_daily():
     @task(trigger_rule="all_done")
     def write_manifest(day: str) -> dict:
         """S'exécute même si des sources ont échoué : elles apparaissent en échec."""
-        from gazette.collect.runner import finalize
+        from gazette.collect.runner import default_repository, finalize
         from gazette.config import load_settings
 
-        return finalize(load_settings(), date.fromisoformat(day))["summary"]
+        settings = load_settings()
+        return finalize(settings, date.fromisoformat(day), default_repository(settings))["summary"]
 
     day = collection_date()
     collected = collect.partial(day=day).expand(slug=list_sources())

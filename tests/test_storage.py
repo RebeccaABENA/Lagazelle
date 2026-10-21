@@ -25,8 +25,8 @@ def healthy_web(web):
     return web
 
 
-def test_tree_and_file_names(settings, healthy_web, make_fetcher):
-    run_collection(settings, DAY, fetcher=make_fetcher())
+def test_tree_and_file_names(settings, healthy_web, make_fetcher, repo):
+    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo)
 
     day = settings.raw_dir / "2026-10-21"
     files = sorted(p.relative_to(day).as_posix() for p in day.rglob("*") if p.is_file())
@@ -43,8 +43,8 @@ def test_tree_and_file_names(settings, healthy_web, make_fetcher):
     assert len(doc["items"]) == 3
 
 
-def test_failing_source_does_not_block_others(settings, healthy_web, make_fetcher):
-    manifest = run_collection(settings, DAY, fetcher=make_fetcher())
+def test_failing_source_does_not_block_others(settings, healthy_web, make_fetcher, repo):
+    manifest = run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo)
 
     by_slug = {e["slug"]: e for e in manifest["sources"]}
     assert by_slug["journal-regional"]["status"] == "ok"
@@ -66,11 +66,11 @@ def test_failing_source_does_not_block_others(settings, healthy_web, make_fetche
     assert not (settings.raw_dir / "2026-10-21" / "pqr" / "gazette-en-panne.json").exists()
 
 
-def test_second_collection_same_day_adds_no_duplicates(settings, healthy_web, make_fetcher):
-    run_collection(settings, DAY, fetcher=make_fetcher())
+def test_second_collection_same_day_adds_no_duplicates(settings, healthy_web, make_fetcher, repo):
+    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo)
     # Deuxième passage : un item nouveau et un item déjà vu dans le flux national.
     healthy_web.add(PQN_FEED, httpx.Response(200, content=fixture_bytes("feed_pqn_update.xml")))
-    manifest = run_collection(settings, DAY, fetcher=make_fetcher())
+    manifest = run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo)
 
     doc = _load(settings.raw_dir / "2026-10-21" / "pqn" / "l-echo-national.json")
     ids = [item["id"] for item in doc["items"]]
@@ -83,15 +83,17 @@ def test_second_collection_same_day_adds_no_duplicates(settings, healthy_web, ma
     assert manifest["summary"]["items_total"] == 6
 
 
-def test_not_modified_feed_is_reported(settings, web, make_fetcher):
+def test_not_modified_feed_is_reported(settings, web, make_fetcher, repo):
     def feed(request):
         if request.headers.get("If-None-Match") == '"abc"':
             return httpx.Response(304)
         return httpx.Response(200, content=fixture_bytes("feed_pqn.xml"), headers={"ETag": '"abc"'})
 
     web.add(PQN_FEED, feed)
-    run_collection(settings, DAY, slugs=["l-echo-national"], fetcher=make_fetcher())
-    manifest = run_collection(settings, DAY, slugs=["l-echo-national"], fetcher=make_fetcher())
+    run_collection(settings, DAY, slugs=["l-echo-national"], fetcher=make_fetcher(), repo=repo)
+    manifest = run_collection(
+        settings, DAY, slugs=["l-echo-national"], fetcher=make_fetcher(), repo=repo
+    )
 
     entry = next(e for e in manifest["sources"] if e["slug"] == "l-echo-national")
     assert entry["status"] == "not_modified"
@@ -117,9 +119,9 @@ def test_atomic_write_keeps_previous_file_on_crash(tmp_path, monkeypatch):
     assert [p.name for p in tmp_path.iterdir()] == ["source.json"]
 
 
-def test_manifest_marks_sources_without_result_as_failed(settings):
+def test_manifest_marks_sources_without_result_as_failed(settings, repo):
     from gazette.collect.runner import finalize
 
-    manifest = finalize(settings, DAY)
+    manifest = finalize(settings, DAY, repo)
     assert manifest["summary"]["failed"] == 3
     assert all("aucun résultat" in e["error"] for e in manifest["sources"])

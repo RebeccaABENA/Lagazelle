@@ -9,7 +9,8 @@ from datetime import date
 from gazette.collect.fetcher import FetchError, PoliteFetcher
 from gazette.collect.parser import parse_feed
 from gazette.config import Settings
-from gazette.sources import Source, load_sources
+from gazette.db.repository import SourceRepository
+from gazette.sources import Source
 from gazette.storage.raw import (
     SourceResult,
     count_items,
@@ -23,11 +24,24 @@ from gazette.storage.raw import (
 log = logging.getLogger(__name__)
 
 
+def default_repository(settings: Settings) -> SourceRepository:
+    from gazette.db import database_url
+    from gazette.db.repository import PostgresSourceRepository
+
+    return PostgresSourceRepository(database_url(settings))
+
+
+def collectable_sources(repo: SourceRepository) -> list[Source]:
+    """Sources à interroger : celles marquées actives en base."""
+    return [s for s in repo.all() if s.active]
+
+
 def collect_source(
     source: Source,
     settings: Settings,
     collection_date: date,
     fetcher: PoliteFetcher,
+    repo: SourceRepository,
 ) -> SourceResult:
     """Collecte une source et stocke ses items. Ne lève jamais : un échec est renvoyé
     (status="failed") et journalisé, pour ne pas bloquer les autres sources."""
@@ -43,10 +57,12 @@ def collect_source(
         "started_at": started_at.isoformat(),
     }
     try:
-        # GET conditionnel seulement si le fichier du jour existe déjà : le premier
-        # passage d'une journée récupère toujours le flux complet.
-        fetched = fetcher.fetch(source.feed_url, conditional=path.exists())
+        # GET conditionnel avec les validateurs mémorisés en base.
+        fetched = fetcher.fetch(
+            source.feed_url, etag=source.etag, last_modified=source.last_modified
+        )
         items = [] if fetched.not_modified else parse_feed(fetched.content, fetched.fetched_at)
+        # Même sur un 304, le passage est noté dans `fetches`.
         new_items, total = store_items(
             path,
             source,
@@ -55,7 +71,14 @@ def collect_source(
             http_status=fetched.status,
             items=items,
         )
-        fetcher.remember(fetched)
+        # Validateurs enregistrés seulement une fois les items stockés : si le stockage
+        # échoue, la collecte suivante refait un GET complet au lieu de recevoir un 304.
+        repo.record_success(
+            source.name,
+            at=fetched.fetched_at,
+            etag=fetched.etag,
+            last_modified=fetched.last_modified,
+        )
         result = SourceResult(
             **fields,
             status="not_modified" if fetched.not_modified else "ok",
@@ -89,13 +112,13 @@ def collect_source(
     return result
 
 
-def finalize(settings: Settings, collection_date: date) -> dict:
+def finalize(settings: Settings, collection_date: date, repo: SourceRepository) -> dict:
     """Écrit le manifeste du jour pour toutes les sources actives."""
     return write_manifest(
         settings.raw_dir,
         settings.state_dir,
         collection_date,
-        load_sources(settings.sources_file),
+        collectable_sources(repo),
         generated_at=settings.now().isoformat(),
         timezone=settings.timezone,
     )
@@ -106,10 +129,12 @@ def run_collection(
     collection_date: date | None = None,
     slugs: list[str] | None = None,
     fetcher: PoliteFetcher | None = None,
+    repo: SourceRepository | None = None,
 ) -> dict:
     """Collecte séquentielle de toutes les sources actives, puis manifeste."""
     collection_date = collection_date or settings.today()
-    sources = load_sources(settings.sources_file)
+    repo = repo or default_repository(settings)
+    sources = collectable_sources(repo)
     if slugs:
         unknown = set(slugs) - {s.slug for s in sources}
         if unknown:
@@ -120,8 +145,8 @@ def run_collection(
     fetcher = fetcher or PoliteFetcher(settings)
     try:
         for source in sources:
-            collect_source(source, settings, collection_date, fetcher)
+            collect_source(source, settings, collection_date, fetcher, repo)
     finally:
         if owned:
             fetcher.close()
-    return finalize(settings, collection_date)
+    return finalize(settings, collection_date, repo)

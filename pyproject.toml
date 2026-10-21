@@ -15,6 +15,7 @@ dependencies = [
     "tenacity>=9,<10",
     "pydantic>=2.7,<3",
     "python-dotenv>=1,<2",
+    "psycopg[binary]>=3.2,<4",
     "tzdata",
 ]
 
@@ -23,6 +24,9 @@ gazette = "gazette.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"gazette.db" = ["migrations/*.sql"]
 
 [tool.ruff]
 line-length = 100
