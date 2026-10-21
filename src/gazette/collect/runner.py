@@ -128,20 +128,11 @@ def collect_source(
             items_total=total,
             duration_s=round(time.monotonic() - start, 3),
         )
-        log.info(
-            "%s : %s, %d nouveaux items (%d au total)",
-            source.slug,
-            result.status,
-            new_items,
-            total,
-        )
     except Exception as exc:  # une source en panne ne doit jamais arrêter les autres
         retryable = is_retryable(exc)
-        kind = "transitoire" if retryable else "permanent"
-        if isinstance(exc, (FetchError, ParseError)):
-            log.error("%s : échec %s de la collecte : %s", source.slug, kind, exc)
-        else:
-            log.exception("%s : échec %s de la collecte", source.slug, kind)
+        if not isinstance(exc, (FetchError, ParseError)):
+            # Erreur inattendue (bug, disque…) : trace complète en plus de la ligne de bilan.
+            log.exception("%s : erreur inattendue pendant la collecte", source.slug)
         failures = None
         if final_attempt or not retryable:
             failures = _count_failure(repo, source)
@@ -155,8 +146,31 @@ def collect_source(
             consecutive_failures=failures,
             duration_s=round(time.monotonic() - start, 3),
         )
+    log.log(logging.ERROR if result.status == "failed" else logging.INFO, summary_line(result))
     save_source_result(settings.state_dir, collection_date, result)
     return result
+
+
+def summary_line(result: SourceResult) -> str:
+    """Une ligne de bilan par source et par passage, au format clé=valeur :
+
+    source=le-monde statut=ok http=200 recus=16 ecrits=3 ignores=13 duree=0.42s
+    """
+    parts = [
+        f"source={result.slug}",
+        f"statut={result.status}",
+        f"http={result.http_status if result.http_status is not None else '-'}",
+        f"recus={result.received}",
+        f"ecrits={result.new_items}",
+        f"ignores={result.ignored}",
+        f"duree={result.duration_s:.2f}s",
+    ]
+    if result.status == "failed":
+        parts.append(f"erreur_type={'transitoire' if result.retryable else 'permanente'}")
+        if result.consecutive_failures is not None:
+            parts.append(f"echecs_consecutifs={result.consecutive_failures}")
+        parts.append(f'erreur="{result.error}"')
+    return " ".join(parts)
 
 
 def _count_failure(repo: SourceRepository, source: Source) -> int | None:

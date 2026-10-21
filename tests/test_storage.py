@@ -176,3 +176,32 @@ def test_stored_items_follow_the_data_dictionary(settings, healthy_web, make_fet
         item["id"]
         for item in _load(settings.raw_dir / "2026-10-21" / "pqn" / "l-echo-national.json")["items"]
     }
+
+
+def test_one_log_line_per_source_with_counts(
+    settings, healthy_web, make_fetcher, repo, index, caplog
+):
+    import logging
+    import re
+
+    caplog.set_level(logging.INFO, logger="gazette.collect.runner")
+    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo, index=index)
+    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo, index=index)
+
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("source=")]
+    assert len(lines) == 6  # 3 sources x 2 passages
+    pattern = re.compile(
+        r"^source=(?P<slug>[a-z0-9-]+) statut=(?P<status>\w+) http=(?P<http>\d+|-) "
+        r"recus=(?P<recus>\d+) ecrits=(?P<ecrits>\d+) ignores=(?P<ignores>\d+) "
+        r"duree=\d+\.\d{2}s"
+    )
+    parsed = [pattern.match(line).groupdict() for line in lines]
+    regional = [p for p in parsed if p["slug"] == "journal-regional"]
+    # 1er passage : 5 entrées, 3 écrites ; 2e passage : 5 reçues, 0 écrite, 5 ignorées.
+    assert [(p["recus"], p["ecrits"], p["ignores"]) for p in regional] == [
+        ("5", "3", "2"),
+        ("5", "0", "5"),
+    ]
+    failed = next(line for line in lines if "gazette-en-panne" in line)
+    assert "statut=failed http=500" in failed
+    assert "erreur_type=transitoire" in failed and "echecs_consecutifs=1" in failed
