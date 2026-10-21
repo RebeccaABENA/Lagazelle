@@ -87,3 +87,26 @@ def test_no_personal_data_nor_full_text():
 def test_unreadable_feed_raises():
     with pytest.raises(ParseError):
         parse_feed(b"<html><body>Erreur 500</body", FETCHED_AT, SOURCE)
+
+
+def test_parse_atom_feed():
+    parsed = parse_feed(fixture_bytes("feed_atom.xml"), FETCHED_AT, "Hebdo Atom")
+    assert parsed.received == 2
+    first, second = parsed.items
+
+    assert first.titre == "Élections municipales : les listes déposées"
+    assert first.lien == "https://atom.example.fr/politique/listes"  # link rel="alternate"
+    assert first.resume == "Les candidats avaient jusqu'à minuit."  # <summary>
+    assert first.publie_le == "2026-10-21T05:30:00+02:00"  # <published>
+    assert first.rubrique == "Politique"  # <category term>
+    assert first.payload["id"].startswith("urn:uuid:")  # gardé pour info, pas pour l'identité
+    assert first.id == item_id("Hebdo Atom", "https://atom.example.fr/politique/listes")
+
+    # Sans <published>, on se rabat sur <updated> (normalisé en heure de Paris).
+    assert second.publie_le == "2026-10-21T06:00:00+02:00"
+    assert second.resume == "<b>Prudence</b> sur les routes."
+    assert second.rubrique is None
+
+    dumped = str([i.model_dump() for i in parsed.items])
+    for forbidden in ("Paul", "paul@", "TEXTE INTÉGRAL"):
+        assert forbidden not in dumped

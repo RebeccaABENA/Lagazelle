@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Hebdo Atom de test</title>
+  <id>urn:uuid:60a76c80-d399-11d9-b93c-0003939e0af6</id>
+  <updated>2026-10-21T06:00:00+02:00</updated>
+  <link rel="self" href="https://atom.example.fr/feed.atom"/>
+
+  <entry>
+    <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a</id>
+    <title>Élections municipales : les listes déposées</title>
+    <link rel="alternate" type="text/html" href="https://atom.example.fr/politique/listes"/>
+    <published>2026-10-21T05:30:00+02:00</published>
+    <updated>2026-10-21T05:45:00+02:00</updated>
+    <summary>Les candidats avaient jusqu'à minuit.</summary>
+    <content type="html">&lt;p&gt;TEXTE INTÉGRAL ATOM à ne pas stocker.&lt;/p&gt;</content>
+    <category term="Politique" label="Politique locale"/>
+    <author><name>Paul Journaliste</name><email>paul@atom.example.fr</email></author>
+  </entry>
+
+  <entry>
+    <id>urn:uuid:2335d695-cfb8-4ebb-bbbb-80da344efa6b</id>
+    <title>Météo : premières gelées</title>
+    <link href="https://atom.example.fr/meteo/gelees"/>
+    <updated>2026-10-21T04:00:00Z</updated>
+    <summary type="html">&lt;b&gt;Prudence&lt;/b&gt; sur les routes.</summary>
+  </entry>
+</feed>
