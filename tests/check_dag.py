@@ -29,6 +29,7 @@ assert set(tasks) == {"collection_date", "list_sources", "collect", "write_manif
 assert tasks["collect"].partial_kwargs["retries"] == 2
 assert tasks["collect"].partial_kwargs["pool"] == "gazette_editeurs"
 assert tasks["write_manifest"].trigger_rule == "all_done"
+assert all(t.retries == 2 for t in dag.tasks if t.task_id != "collect")
 print("DAG gazette_daily OK :", sorted(tasks))
 
 # Le pool doit exister en base (créé par airflow-init) avec une seule place.

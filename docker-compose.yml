@@ -23,6 +23,9 @@ x-airflow-common: &airflow-common
     AIRFLOW__API__WORKERS: "1"
     # Un seul DAG, qui change rarement : le reparser toutes les 2 min suffit (CPU au repos).
     AIRFLOW__DAG_PROCESSOR__MIN_FILE_PROCESS_INTERVAL: "120"
+    # Au démarrage à froid, l'API d'exécution a mis ~40 s à répondre (défaut : 5 s) :
+    # le superviseur tuait alors les tâches avant leur démarrage (runs du 21/10 08:40 et 10:00).
+    AIRFLOW__WORKERS__EXECUTION_API_TIMEOUT: "60"
     # Chemins du paquet gazette dans le conteneur (prioritaires sur .env).
     GAZETTE_DATA_DIR: /opt/gazette/data
     GAZETTE_SOURCES_FILE: /opt/gazette/sources.csv

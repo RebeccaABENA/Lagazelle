@@ -37,7 +37,9 @@ def _paris_date(context) -> str:
     max_active_runs=1,
     # Un run ne doit jamais chevaucher le suivant.
     dagrun_timeout=timedelta(minutes=25),
-    default_args={"owner": "la-gazette"},
+    # Relances pour toutes les tâches : une tâche tuée avant son démarrage (API
+    # d'exécution lente au démarrage de la pile) est relancée au lieu d'échouer.
+    default_args={"owner": "la-gazette", "retries": 2, "retry_delay": timedelta(minutes=1)},
     tags=["gazette", "collecte"],
 )
 def gazette_daily():
