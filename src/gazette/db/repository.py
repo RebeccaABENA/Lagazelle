@@ -37,6 +37,12 @@ class SourceRepository(Protocol):
     ) -> None:
         """Réussite (200 ou 304) : date, compteur d'échecs remis à 0, validateurs HTTP."""
 
+    def record_failure(self, name: str) -> int:
+        """Échec d'une collecte : incrémente et renvoie `echecs_consecutifs`."""
+
+    def wake(self, slug: str) -> Source:
+        """Réveille une source en sommeil : compteur d'échecs remis à 0."""
+
 
 def _find(sources: list[Source], slug: str) -> Source:
     for source in sources:
@@ -111,6 +117,23 @@ class PostgresSourceRepository:
                 (at, etag, last_modified, name),
             )
 
+    def record_failure(self, name: str) -> int:
+        with connect(self.dsn) as conn:
+            row = conn.execute(
+                """UPDATE sources SET echecs_consecutifs = echecs_consecutifs + 1
+                   WHERE nom = %s RETURNING echecs_consecutifs""",
+                (name,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Source inconnue : {name}")
+        return row[0]
+
+    def wake(self, slug: str) -> Source:
+        source = self.get(slug)
+        with connect(self.dsn) as conn:
+            conn.execute("UPDATE sources SET echecs_consecutifs = 0 WHERE nom = %s", (source.name,))
+        return self.get(slug)
+
 
 # -- En mémoire (tests) -----------------------------------------------------------
 class InMemorySourceRepository:
@@ -155,3 +178,12 @@ class InMemorySourceRepository:
             etag=etag or current.etag,
             last_modified=last_modified or current.last_modified,
         )
+
+    def record_failure(self, name: str) -> int:
+        count = self._sources[name].consecutive_failures + 1
+        self._update(name, consecutive_failures=count)
+        return count
+
+    def wake(self, slug: str) -> Source:
+        self._update(self.get(slug).name, consecutive_failures=0)
+        return self.get(slug)

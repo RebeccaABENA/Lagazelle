@@ -54,6 +54,10 @@ jobs:
       - name: Valider docker-compose.yml
         run: |
           cp .env.example .env
+          # Sous Linux, Airflow doit tourner avec l'UID de l'hôte et trouver ses dossiers
+          # montés déjà créés, sinon Docker les crée en root (cf. README).
+          echo "AIRFLOW_UID=$(id -u)" >> .env
+          mkdir -p logs data/raw
           docker compose config --quiet
       - name: Construire l'image Airflow
         run: docker compose build

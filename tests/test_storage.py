@@ -58,6 +58,7 @@ def test_failing_source_does_not_block_others(settings, healthy_web, make_fetche
         "ok": 2,
         "not_modified": 0,
         "failed": 1,
+        "sleeping": 0,
         "new_items": 5,
         "items_total": 5,
     }

@@ -17,6 +17,10 @@ from pydantic import BaseModel, field_validator
 
 REQUIRED_COLUMNS = ("nom", "type", "region", "acces", "conditions", "notes", "active")
 
+# Au bout de 3 collectes en échec d'affilée, une source est mise en sommeil : elle
+# n'est plus interrogée jusqu'à son réveil (`python -m gazette sources wake SLUG`).
+SLEEP_THRESHOLD = 3
+
 
 def slugify(name: str) -> str:
     """'La Dépêche du Midi' -> 'la-depeche-du-midi' ; "L'Obs" -> 'l-obs'."""
@@ -54,6 +58,17 @@ class Source(BaseModel):
     @property
     def slug(self) -> str:
         return slugify(self.name)
+
+    @property
+    def sleeping(self) -> bool:
+        return self.consecutive_failures >= SLEEP_THRESHOLD
+
+    @property
+    def state(self) -> str:
+        """'actif', 'en sommeil' ou 'désactivé'."""
+        if not self.active:
+            return "désactivé"
+        return "en sommeil" if self.sleeping else "actif"
 
     @property
     def subdir(self) -> str:

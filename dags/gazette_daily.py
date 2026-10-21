@@ -52,14 +52,25 @@ def gazette_daily():
         from gazette.collect.runner import collect_source, default_repository
         from gazette.config import load_settings
 
-        get_current_context()["source_slug"] = slug  # libellé de la tâche mappée dans l'UI
+        context = get_current_context()
+        context["source_slug"] = slug  # libellé de la tâche mappée dans l'UI
+        ti = context["ti"]
+        # L'échec n'est compté en base qu'au dernier essai (try_number commence à 1).
+        final_attempt = ti.try_number > ti.max_tries
         settings = load_settings()
         repo = default_repository(settings)
         source = repo.get(slug)
         with PoliteFetcher(settings) as fetcher:
-            result = collect_source(source, settings, date.fromisoformat(day), fetcher, repo)
+            result = collect_source(
+                source,
+                settings,
+                date.fromisoformat(day),
+                fetcher,
+                repo,
+                final_attempt=final_attempt,
+            )
         if result.status == "failed":
-            # robots.txt interdit, 404… : inutile de relancer.
+            # Erreur permanente (robots.txt, 404, flux illisible) : inutile de relancer.
             if not result.retryable:
                 raise AirflowFailException(result.error)
             raise RuntimeError(result.error)

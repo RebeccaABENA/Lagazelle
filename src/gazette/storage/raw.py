@@ -23,7 +23,7 @@ from gazette.storage.atomic import atomic_write_json, file_lock, read_json
 
 MANIFEST_NAME = "_manifest.json"
 
-Status = Literal["ok", "not_modified", "failed"]
+Status = Literal["ok", "not_modified", "failed", "sleeping"]
 
 
 class SourceResult(BaseModel):
@@ -40,6 +40,8 @@ class SourceResult(BaseModel):
     items_total: int = 0
     error: str | None = None
     retryable: bool = False
+    # Valeur de `echecs_consecutifs` après cette collecte (None si non comptée).
+    consecutive_failures: int | None = None
     started_at: str
     duration_s: float
 
@@ -127,15 +129,35 @@ def write_manifest(
     generated_at: str,
     timezone: str,
 ) -> dict:
-    """Écrit `_manifest.json` : un bilan par source attendue, plus un résumé.
+    """Écrit `_manifest.json` : un bilan par source active, plus un résumé.
 
-    Une source sans résultat (tâche jamais exécutée ou tuée) est marquée en échec.
+    Une source en sommeil est signalée comme telle (statut `sleeping`) ; une source
+    sans résultat (tâche jamais exécutée ou tuée) est marquée en échec.
     """
     entries = []
     for source in sources:
         result = load_source_result(state_dir, collection_date, source.slug)
         path = source_file(raw_dir, collection_date, source)
-        if result is None:
+        if source.sleeping:
+            entry = {
+                "source": source.name,
+                "slug": source.slug,
+                "type": source.type,
+                "feed_url": source.feed_url,
+                "file": relative_source_file(source),
+                "status": "sleeping",
+                "http_status": None,
+                "new_items": 0,
+                "items_total": count_items(path),
+                "error": (
+                    f"en sommeil après {source.consecutive_failures} échecs consécutifs ; "
+                    f"réveil : python -m gazette sources wake {source.slug}"
+                ),
+                "started_at": None,
+                "duration_s": None,
+                "consecutive_failures": source.consecutive_failures,
+            }
+        elif result is None:
             entry = {
                 "source": source.name,
                 "slug": source.slug,
@@ -149,6 +171,7 @@ def write_manifest(
                 "error": "aucun résultat : collecte non exécutée ou interrompue",
                 "started_at": None,
                 "duration_s": None,
+                "consecutive_failures": source.consecutive_failures,
             }
         else:
             entry = result.model_dump(exclude={"retryable"})
@@ -166,6 +189,7 @@ def write_manifest(
             "ok": statuses.count("ok"),
             "not_modified": statuses.count("not_modified"),
             "failed": statuses.count("failed"),
+            "sleeping": statuses.count("sleeping"),
             "new_items": sum(e["new_items"] for e in entries),
             "items_total": sum(e["items_total"] for e in entries),
         },

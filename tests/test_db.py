@@ -24,7 +24,7 @@ EXPECTED_COLUMNS = [
 
 def test_migrations_are_numbered_and_versioned():
     names = [m.name for m in available_migrations()]
-    assert names[0] == "001_create_sources.sql"
+    assert names[:2] == ["001_create_sources.sql", "002_sources_en_sommeil.sql"]
     assert [m.version for m in available_migrations()] == sorted(
         m.version for m in available_migrations()
     )
@@ -69,3 +69,20 @@ def test_seed_then_state_round_trip(pg_dsn):
     repo.record_success("Journal Régional", at=at, etag=None, last_modified=None)
     source = repo.get("journal-regional")
     assert (source.etag, source.last_modified, source.last_success) == ('"v1"', "Wed, 21 Oct", at)
+
+
+def test_failure_counter_wake_and_sleeping_view(pg_dsn):
+    with connect(pg_dsn) as conn:
+        migrate(conn)
+    repo = PostgresSourceRepository(pg_dsn)
+    repo.seed(load_sources(FIXTURES / "sources.csv", include_inactive=True))
+
+    assert [repo.record_failure("Gazette en Panne") for _ in range(3)] == [1, 2, 3]
+    assert repo.get("gazette-en-panne").sleeping
+    with connect(pg_dsn) as conn:
+        sleeping = conn.execute("SELECT nom, echecs_consecutifs FROM sources_en_sommeil").fetchall()
+    assert sleeping == [("Gazette en Panne", 3)]
+
+    assert repo.wake("gazette-en-panne").consecutive_failures == 0
+    with connect(pg_dsn) as conn:
+        assert conn.execute("SELECT count(*) FROM sources_en_sommeil").fetchone()[0] == 0

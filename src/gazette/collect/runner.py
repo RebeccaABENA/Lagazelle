@@ -7,10 +7,10 @@ import time
 from datetime import date
 
 from gazette.collect.fetcher import FetchError, PoliteFetcher
-from gazette.collect.parser import parse_feed
+from gazette.collect.parser import ParseError, parse_feed
 from gazette.config import Settings
 from gazette.db.repository import SourceRepository
-from gazette.sources import Source
+from gazette.sources import SLEEP_THRESHOLD, Source
 from gazette.storage.raw import (
     SourceResult,
     count_items,
@@ -31,9 +31,22 @@ def default_repository(settings: Settings) -> SourceRepository:
     return PostgresSourceRepository(database_url(settings))
 
 
-def collectable_sources(repo: SourceRepository) -> list[Source]:
-    """Sources à interroger : celles marquées actives en base."""
+def active_sources(repo: SourceRepository) -> list[Source]:
+    """Sources actives en base, y compris celles en sommeil (pour le manifeste)."""
     return [s for s in repo.all() if s.active]
+
+
+def collectable_sources(repo: SourceRepository) -> list[Source]:
+    """Sources à interroger : actives et pas en sommeil."""
+    return [s for s in active_sources(repo) if not s.sleeping]
+
+
+def is_retryable(exc: Exception) -> bool:
+    """Erreur transitoire (réseau, 429, 5xx) : vaut la peine de relancer.
+    Erreur permanente (robots.txt, 404, flux illisible) : non."""
+    if isinstance(exc, FetchError):
+        return exc.retryable
+    return not isinstance(exc, ParseError)
 
 
 def collect_source(
@@ -42,9 +55,16 @@ def collect_source(
     collection_date: date,
     fetcher: PoliteFetcher,
     repo: SourceRepository,
+    *,
+    final_attempt: bool = True,
 ) -> SourceResult:
     """Collecte une source et stocke ses items. Ne lève jamais : un échec est renvoyé
-    (status="failed") et journalisé, pour ne pas bloquer les autres sources."""
+    (status="failed") et journalisé, pour ne pas bloquer les autres sources.
+
+    Un échec n'est compté dans `echecs_consecutifs` qu'une fois par collecte : au
+    dernier essai (`final_attempt`, cf. relances Airflow), ou tout de suite s'il est
+    permanent, puisqu'il ne sera pas relancé.
+    """
     started_at = settings.now()
     start = time.monotonic()
     path = source_file(settings.raw_dir, collection_date, source)
@@ -81,6 +101,7 @@ def collect_source(
         )
         result = SourceResult(
             **fields,
+            consecutive_failures=0,
             status="not_modified" if fetched.not_modified else "ok",
             http_status=fetched.status,
             new_items=new_items,
@@ -95,30 +116,63 @@ def collect_source(
             total,
         )
     except Exception as exc:  # une source en panne ne doit jamais arrêter les autres
-        if isinstance(exc, FetchError):
-            log.error("%s : échec de la collecte : %s", source.slug, exc)
+        retryable = is_retryable(exc)
+        kind = "transitoire" if retryable else "permanent"
+        if isinstance(exc, (FetchError, ParseError)):
+            log.error("%s : échec %s de la collecte : %s", source.slug, kind, exc)
         else:
-            log.exception("%s : échec de la collecte", source.slug)
+            log.exception("%s : échec %s de la collecte", source.slug, kind)
+        failures = None
+        if final_attempt or not retryable:
+            failures = _count_failure(repo, source)
         result = SourceResult(
             **fields,
             status="failed",
             http_status=getattr(exc, "status", None),
             items_total=count_items(path),
             error=f"{type(exc).__name__}: {exc}",
-            retryable=exc.retryable if isinstance(exc, FetchError) else True,
+            retryable=retryable,
+            consecutive_failures=failures,
             duration_s=round(time.monotonic() - start, 3),
         )
     save_source_result(settings.state_dir, collection_date, result)
     return result
 
 
+def _count_failure(repo: SourceRepository, source: Source) -> int | None:
+    try:
+        failures = repo.record_failure(source.name)
+    except Exception:  # base indisponible : ne pas masquer l'échec d'origine
+        log.exception("%s : impossible d'enregistrer l'échec en base", source.slug)
+        return None
+    if failures == SLEEP_THRESHOLD:
+        log.warning(
+            "%s : mise en sommeil après %d échecs consécutifs ; "
+            "réveil : python -m gazette sources wake %s",
+            source.slug,
+            failures,
+            source.slug,
+        )
+    return failures
+
+
 def finalize(settings: Settings, collection_date: date, repo: SourceRepository) -> dict:
-    """Écrit le manifeste du jour pour toutes les sources actives."""
+    """Écrit le manifeste du jour : sources actives, y compris celles en sommeil."""
+    sources = active_sources(repo)
+    for source in sources:
+        if source.sleeping:
+            log.warning(
+                "%s : en sommeil (%d échecs consécutifs) ; réveil : "
+                "python -m gazette sources wake %s",
+                source.slug,
+                source.consecutive_failures,
+                source.slug,
+            )
     return write_manifest(
         settings.raw_dir,
         settings.state_dir,
         collection_date,
-        collectable_sources(repo),
+        sources,
         generated_at=settings.now().isoformat(),
         timezone=settings.timezone,
     )
@@ -138,7 +192,7 @@ def run_collection(
     if slugs:
         unknown = set(slugs) - {s.slug for s in sources}
         if unknown:
-            raise KeyError(f"Sources inconnues ou inactives : {sorted(unknown)}")
+            raise KeyError(f"Sources inconnues, inactives ou en sommeil : {sorted(unknown)}")
         sources = [s for s in sources if s.slug in slugs]
 
     owned = fetcher is None

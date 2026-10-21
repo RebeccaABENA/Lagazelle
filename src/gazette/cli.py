@@ -4,6 +4,7 @@ python -m gazette collect [--date AAAA-MM-JJ] [--source SLUG ...] [--strict]
 python -m gazette db migrate
 python -m gazette db seed [--csv sources.csv]
 python -m gazette sources list
+python -m gazette sources wake SLUG [SLUG ...] | --all
 """
 
 from __future__ import annotations
@@ -50,6 +51,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sources = sub.add_parser("sources", help="état des sources en base")
     sources_sub = sources.add_subparsers(dest="sources_command", required=True)
     sources_sub.add_parser("list", help="liste les sources et leur état de collecte")
+    wake = sources_sub.add_parser("wake", help="réveille des sources en sommeil")
+    wake.add_argument("slugs", nargs="*", metavar="SLUG")
+    wake.add_argument("--all", action="store_true", help="toutes les sources en sommeil")
     return parser
 
 
@@ -108,12 +112,23 @@ def _cmd_db(args: argparse.Namespace, settings: Settings) -> int:
 def _cmd_sources(args: argparse.Namespace, settings: Settings) -> int:
     from gazette.collect.runner import default_repository
 
-    print(f"{'slug':<20} {'type':<4} {'actif':<5} {'échecs':>6}  {'dernière réussite':<25} etag")
-    for s in default_repository(settings).all():
+    repo = default_repository(settings)
+    if args.sources_command == "wake":
+        slugs = [s.slug for s in repo.all() if s.sleeping] if args.all else args.slugs
+        if not slugs:
+            print("Aucune source à réveiller.")
+            return 0 if args.all else 2
+        for slug in slugs:
+            source = repo.wake(slug)
+            print(f"{slug} : réveillée (échecs consécutifs = {source.consecutive_failures})")
+        return 0
+
+    print(f"{'slug':<20} {'type':<4} {'état':<10} {'échecs':>6}  {'dernière réussite':<25} etag")
+    for s in repo.all():
         last = s.last_success.isoformat(timespec="seconds") if s.last_success else "-"
         print(
-            f"{s.slug:<20} {s.type:<4} {'oui' if s.active else 'non':<5} "
-            f"{s.consecutive_failures:>6}  {last:<25} {'oui' if s.etag else '-'}"
+            f"{s.slug:<20} {s.type:<4} {s.state:<10} {s.consecutive_failures:>6}  "
+            f"{last:<25} {'oui' if s.etag else '-'}"
         )
     return 0
 
