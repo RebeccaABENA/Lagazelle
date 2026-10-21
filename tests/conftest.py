@@ -14,7 +14,7 @@ from tenacity import wait_none
 
 from gazette.collect.fetcher import PoliteFetcher
 from gazette.config import Settings
-from gazette.db.repository import InMemorySourceRepository
+from gazette.db.repository import InMemoryArticleIndex, InMemorySourceRepository
 from gazette.sources import load_sources
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -63,6 +63,12 @@ def settings(tmp_path: Path) -> Settings:
 def repo() -> InMemorySourceRepository:
     """Table `sources` simulée, amorcée depuis tests/fixtures/sources.csv."""
     return InMemorySourceRepository(load_sources(FIXTURES / "sources.csv", include_inactive=True))
+
+
+@pytest.fixture
+def index() -> InMemoryArticleIndex:
+    """Table `articles_vus` simulée."""
+    return InMemoryArticleIndex()
 
 
 @pytest.fixture

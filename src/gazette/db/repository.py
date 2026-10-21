@@ -7,7 +7,7 @@ a le même comportement et sert aux tests sans base.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol
 
 from psycopg.rows import dict_row
@@ -187,3 +187,49 @@ class InMemorySourceRepository:
     def wake(self, slug: str) -> Source:
         self._update(self.get(slug).name, consecutive_failures=0)
         return self.get(slug)
+
+
+# -- Index des articles déjà vus (déduplication sur plusieurs jours) ---------------
+class ArticleIndex(Protocol):
+    def unseen(self, ids: list[str]) -> set[str]:
+        """Parmi `ids`, ceux qui n'ont encore jamais été écrits."""
+
+    def add(self, source: str, ids: list[str], collection_date: date) -> None:
+        """Note des articles écrits ce jour-là (sans erreur s'ils y sont déjà)."""
+
+
+class PostgresArticleIndex:
+    def __init__(self, dsn: str):
+        self.dsn = dsn
+
+    def unseen(self, ids: list[str]) -> set[str]:
+        if not ids:
+            return set()
+        with connect(self.dsn) as conn:
+            known = {
+                row[0]
+                for row in conn.execute("SELECT id FROM articles_vus WHERE id = ANY(%s)", (ids,))
+            }
+        return set(ids) - known
+
+    def add(self, source: str, ids: list[str], collection_date: date) -> None:
+        if not ids:
+            return
+        with connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.executemany(
+                """INSERT INTO articles_vus (id, source, premiere_collecte)
+                   VALUES (%s, %s, %s) ON CONFLICT (id) DO NOTHING""",
+                [(i, source, collection_date) for i in ids],
+            )
+
+
+class InMemoryArticleIndex:
+    def __init__(self) -> None:
+        self.entries: dict[str, tuple[str, date]] = {}
+
+    def unseen(self, ids: list[str]) -> set[str]:
+        return {i for i in ids if i not in self.entries}
+
+    def add(self, source: str, ids: list[str], collection_date: date) -> None:
+        for i in ids:
+            self.entries.setdefault(i, (source, collection_date))

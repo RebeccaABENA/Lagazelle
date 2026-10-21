@@ -36,7 +36,9 @@ class SourceResult(BaseModel):
     file: str
     status: Status
     http_status: int | None = None
-    new_items: int = 0
+    received: int = 0  # entrées présentes dans le flux
+    new_items: int = 0  # articles écrits (jamais vus auparavant)
+    ignored: int = 0  # reçus mais non écrits : déjà vus, doublons, sans lien
     items_total: int = 0
     error: str | None = None
     retryable: bool = False

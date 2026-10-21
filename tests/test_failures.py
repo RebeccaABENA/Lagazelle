@@ -5,6 +5,7 @@ import pytest
 from conftest import DAY
 
 from gazette.collect.runner import collect_source, collectable_sources, run_collection
+from gazette.db.repository import InMemoryArticleIndex
 from gazette.sources import SLEEP_THRESHOLD
 
 BROKEN_FEED = "https://panne.example.fr/rss.xml"
@@ -19,10 +20,14 @@ def broken_web(web):
 
 
 def _collect(settings, repo, fetcher, slug, **kwargs):
-    return collect_source(repo.get(slug), settings, DAY, fetcher, repo, **kwargs)
+    return collect_source(
+        repo.get(slug), settings, DAY, fetcher, repo, InMemoryArticleIndex(), **kwargs
+    )
 
 
-def test_failure_counter_and_sleep_after_three_failures(settings, repo, broken_web, make_fetcher):
+def test_failure_counter_and_sleep_after_three_failures(
+    settings, repo, index, broken_web, make_fetcher
+):
     for expected in (1, 2, 3):
         result = _collect(settings, repo, make_fetcher(), "gazette-en-panne")
         assert result.status == "failed"
@@ -35,7 +40,7 @@ def test_failure_counter_and_sleep_after_three_failures(settings, repo, broken_w
 
     # Collecte suivante : la source en sommeil n'est plus interrogée...
     broken_web.requests.clear()
-    manifest = run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo)
+    manifest = run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo, index=index)
     assert BROKEN_FEED not in broken_web.urls()
     # ...mais elle reste visible dans le manifeste, avec la commande de réveil.
     entry = next(e for e in manifest["sources"] if e["slug"] == "gazette-en-panne")
@@ -45,7 +50,7 @@ def test_failure_counter_and_sleep_after_three_failures(settings, repo, broken_w
 
 
 def test_wake_resets_counter_and_source_is_collected_again(
-    settings, repo, broken_web, make_fetcher
+    settings, repo, index, broken_web, make_fetcher
 ):
     for _ in range(SLEEP_THRESHOLD):
         _collect(settings, repo, make_fetcher(), "gazette-en-panne")
@@ -55,12 +60,12 @@ def test_wake_resets_counter_and_source_is_collected_again(
     assert woken.consecutive_failures == 0 and not woken.sleeping
 
     broken_web.add(BROKEN_FEED, httpx.Response(200, content=b"<rss version='2.0'><channel/></rss>"))
-    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo)
+    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo, index=index)
     assert BROKEN_FEED in broken_web.urls()
     assert repo.get("gazette-en-panne").last_success is not None
 
 
-def test_success_resets_counter(settings, repo, broken_web, make_fetcher):
+def test_success_resets_counter(settings, repo, index, broken_web, make_fetcher):
     _collect(settings, repo, make_fetcher(), "gazette-en-panne")
     _collect(settings, repo, make_fetcher(), "gazette-en-panne")
     broken_web.add(BROKEN_FEED, httpx.Response(200, content=b"<rss version='2.0'><channel/></rss>"))
@@ -69,7 +74,9 @@ def test_success_resets_counter(settings, repo, broken_web, make_fetcher):
     assert repo.get("gazette-en-panne").consecutive_failures == 0
 
 
-def test_transient_failure_counted_only_on_final_attempt(settings, repo, broken_web, make_fetcher):
+def test_transient_failure_counted_only_on_final_attempt(
+    settings, repo, index, broken_web, make_fetcher
+):
     # Relances Airflow : essais 1 et 2 non comptés, le 3e (dernier) l'est.
     first = _collect(settings, repo, make_fetcher(), "gazette-en-panne", final_attempt=False)
     assert first.retryable is True and first.consecutive_failures is None
@@ -86,7 +93,7 @@ def test_transient_failure_counted_only_on_final_attempt(settings, repo, broken_
     ],
 )
 def test_permanent_errors_are_not_retried_and_counted_at_once(
-    settings, repo, web, make_fetcher, response, error
+    settings, repo, index, web, make_fetcher, response, error
 ):
     web.add(BROKEN_FEED, response)
     result = _collect(settings, repo, make_fetcher(), "gazette-en-panne", final_attempt=False)

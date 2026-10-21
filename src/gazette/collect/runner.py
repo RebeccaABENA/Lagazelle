@@ -9,7 +9,7 @@ from datetime import date
 from gazette.collect.fetcher import FetchError, PoliteFetcher
 from gazette.collect.parser import ParseError, parse_feed
 from gazette.config import Settings
-from gazette.db.repository import SourceRepository
+from gazette.db.repository import ArticleIndex, SourceRepository
 from gazette.sources import SLEEP_THRESHOLD, Source
 from gazette.storage.raw import (
     SourceResult,
@@ -29,6 +29,13 @@ def default_repository(settings: Settings) -> SourceRepository:
     from gazette.db.repository import PostgresSourceRepository
 
     return PostgresSourceRepository(database_url(settings))
+
+
+def default_index(settings: Settings) -> ArticleIndex:
+    from gazette.db import database_url
+    from gazette.db.repository import PostgresArticleIndex
+
+    return PostgresArticleIndex(database_url(settings))
 
 
 def active_sources(repo: SourceRepository) -> list[Source]:
@@ -55,6 +62,7 @@ def collect_source(
     collection_date: date,
     fetcher: PoliteFetcher,
     repo: SourceRepository,
+    index: ArticleIndex,
     *,
     final_attempt: bool = True,
 ) -> SourceResult:
@@ -81,7 +89,14 @@ def collect_source(
         fetched = fetcher.fetch(
             source.feed_url, etag=source.etag, last_modified=source.last_modified
         )
-        items = [] if fetched.not_modified else parse_feed(fetched.content, fetched.fetched_at)
+        received, items = 0, []
+        if not fetched.not_modified:
+            parsed = parse_feed(fetched.content, fetched.fetched_at, source.name)
+            received = parsed.received
+            # Déduplication sur plusieurs jours : un article déjà écrit un jour
+            # précédent (ou plus tôt aujourd'hui) n'est pas réécrit.
+            fresh = index.unseen([item.id for item in parsed.items])
+            items = [item for item in parsed.items if item.id in fresh]
         # Même sur un 304, le passage est noté dans `fetches`.
         new_items, total = store_items(
             path,
@@ -91,6 +106,9 @@ def collect_source(
             http_status=fetched.status,
             items=items,
         )
+        # Index mis à jour après l'écriture du fichier : un plantage entre les deux
+        # fait au pire réécrire l'article au passage suivant, jamais le perdre.
+        index.add(source.name, [item.id for item in items], collection_date)
         # Validateurs enregistrés seulement une fois les items stockés : si le stockage
         # échoue, la collecte suivante refait un GET complet au lieu de recevoir un 304.
         repo.record_success(
@@ -104,7 +122,9 @@ def collect_source(
             consecutive_failures=0,
             status="not_modified" if fetched.not_modified else "ok",
             http_status=fetched.status,
+            received=received,
             new_items=new_items,
+            ignored=received - new_items,
             items_total=total,
             duration_s=round(time.monotonic() - start, 3),
         )
@@ -184,10 +204,12 @@ def run_collection(
     slugs: list[str] | None = None,
     fetcher: PoliteFetcher | None = None,
     repo: SourceRepository | None = None,
+    index: ArticleIndex | None = None,
 ) -> dict:
     """Collecte séquentielle de toutes les sources actives, puis manifeste."""
     collection_date = collection_date or settings.today()
     repo = repo or default_repository(settings)
+    index = index or default_index(settings)
     sources = collectable_sources(repo)
     if slugs:
         unknown = set(slugs) - {s.slug for s in sources}
@@ -199,7 +221,7 @@ def run_collection(
     fetcher = fetcher or PoliteFetcher(settings)
     try:
         for source in sources:
-            collect_source(source, settings, collection_date, fetcher, repo)
+            collect_source(source, settings, collection_date, fetcher, repo, index)
     finally:
         if owned:
             fetcher.close()

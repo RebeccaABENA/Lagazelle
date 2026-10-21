@@ -25,8 +25,8 @@ def healthy_web(web):
     return web
 
 
-def test_tree_and_file_names(settings, healthy_web, make_fetcher, repo):
-    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo)
+def test_tree_and_file_names(settings, healthy_web, make_fetcher, repo, index):
+    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo, index=index)
 
     day = settings.raw_dir / "2026-10-21"
     files = sorted(p.relative_to(day).as_posix() for p in day.rglob("*") if p.is_file())
@@ -43,8 +43,8 @@ def test_tree_and_file_names(settings, healthy_web, make_fetcher, repo):
     assert len(doc["items"]) == 3
 
 
-def test_failing_source_does_not_block_others(settings, healthy_web, make_fetcher, repo):
-    manifest = run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo)
+def test_failing_source_does_not_block_others(settings, healthy_web, make_fetcher, repo, index):
+    manifest = run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo, index=index)
 
     by_slug = {e["slug"]: e for e in manifest["sources"]}
     assert by_slug["journal-regional"]["status"] == "ok"
@@ -67,11 +67,13 @@ def test_failing_source_does_not_block_others(settings, healthy_web, make_fetche
     assert not (settings.raw_dir / "2026-10-21" / "pqr" / "gazette-en-panne.json").exists()
 
 
-def test_second_collection_same_day_adds_no_duplicates(settings, healthy_web, make_fetcher, repo):
-    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo)
+def test_second_collection_same_day_adds_no_duplicates(
+    settings, healthy_web, make_fetcher, repo, index
+):
+    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo, index=index)
     # Deuxième passage : un item nouveau et un item déjà vu dans le flux national.
     healthy_web.add(PQN_FEED, httpx.Response(200, content=fixture_bytes("feed_pqn_update.xml")))
-    manifest = run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo)
+    manifest = run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo, index=index)
 
     doc = _load(settings.raw_dir / "2026-10-21" / "pqn" / "l-echo-national.json")
     ids = [item["id"] for item in doc["items"]]
@@ -84,16 +86,18 @@ def test_second_collection_same_day_adds_no_duplicates(settings, healthy_web, ma
     assert manifest["summary"]["items_total"] == 6
 
 
-def test_not_modified_feed_is_reported(settings, web, make_fetcher, repo):
+def test_not_modified_feed_is_reported(settings, web, make_fetcher, repo, index):
     def feed(request):
         if request.headers.get("If-None-Match") == '"abc"':
             return httpx.Response(304)
         return httpx.Response(200, content=fixture_bytes("feed_pqn.xml"), headers={"ETag": '"abc"'})
 
     web.add(PQN_FEED, feed)
-    run_collection(settings, DAY, slugs=["l-echo-national"], fetcher=make_fetcher(), repo=repo)
+    run_collection(
+        settings, DAY, slugs=["l-echo-national"], fetcher=make_fetcher(), repo=repo, index=index
+    )
     manifest = run_collection(
-        settings, DAY, slugs=["l-echo-national"], fetcher=make_fetcher(), repo=repo
+        settings, DAY, slugs=["l-echo-national"], fetcher=make_fetcher(), repo=repo, index=index
     )
 
     entry = next(e for e in manifest["sources"] if e["slug"] == "l-echo-national")
@@ -120,9 +124,55 @@ def test_atomic_write_keeps_previous_file_on_crash(tmp_path, monkeypatch):
     assert [p.name for p in tmp_path.iterdir()] == ["source.json"]
 
 
-def test_manifest_marks_sources_without_result_as_failed(settings, repo):
+def test_manifest_marks_sources_without_result_as_failed(settings, repo, index):
     from gazette.collect.runner import finalize
 
     manifest = finalize(settings, DAY, repo)
     assert manifest["summary"]["failed"] == 3
     assert all("aucun résultat" in e["error"] for e in manifest["sources"])
+
+
+def test_article_seen_yesterday_is_not_written_again(
+    settings, healthy_web, make_fetcher, repo, index
+):
+    from datetime import timedelta
+
+    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo, index=index)
+    # Le lendemain, le flux national publie un article nouveau et en garde un ancien.
+    healthy_web.add(PQN_FEED, httpx.Response(200, content=fixture_bytes("feed_pqn_update.xml")))
+    next_day = DAY + timedelta(days=1)
+    manifest = run_collection(settings, next_day, fetcher=make_fetcher(), repo=repo, index=index)
+
+    doc = _load(settings.raw_dir / "2026-10-22" / "pqn" / "l-echo-national.json")
+    assert [item["titre"] for item in doc["items"]] == ["Sport : victoire en coupe d'Europe"]
+    # Flux régional inchangé : rien de réécrit, mais le passage est tracé.
+    pqr = _load(settings.raw_dir / "2026-10-22" / "pqr" / "journal-regional.json")
+    assert pqr["items"] == []
+    assert pqr["fetches"][0]["new_items"] == 0
+    by_slug = {e["slug"]: e for e in manifest["sources"]}
+    assert (by_slug["l-echo-national"]["received"], by_slug["l-echo-national"]["new_items"]) == (
+        2,
+        1,
+    )
+    assert by_slug["l-echo-national"]["ignored"] == 1
+
+
+def test_stored_items_follow_the_data_dictionary(settings, healthy_web, make_fetcher, repo, index):
+    run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo, index=index)
+    doc = _load(settings.raw_dir / "2026-10-21" / "pqr" / "journal-regional.json")
+    assert set(doc["items"][0]) == {
+        "id",
+        "source",
+        "lien",
+        "titre",
+        "resume",
+        "publie_le",
+        "recupere_le",
+        "rubrique",
+        "payload",
+    }
+    assert {item["source"] for item in doc["items"]} == {"Journal Régional"}
+    assert set(index.entries) == {item["id"] for item in doc["items"]} | {
+        item["id"]
+        for item in _load(settings.raw_dir / "2026-10-21" / "pqn" / "l-echo-national.json")["items"]
+    }

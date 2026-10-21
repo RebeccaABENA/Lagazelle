@@ -7,7 +7,7 @@ from conftest import FIXTURES
 
 from gazette.db import connect
 from gazette.db.migrate import available_migrations, migrate
-from gazette.db.repository import PostgresSourceRepository
+from gazette.db.repository import PostgresArticleIndex, PostgresSourceRepository
 from gazette.sources import load_sources
 
 EXPECTED_COLUMNS = [
@@ -24,7 +24,11 @@ EXPECTED_COLUMNS = [
 
 def test_migrations_are_numbered_and_versioned():
     names = [m.name for m in available_migrations()]
-    assert names[:2] == ["001_create_sources.sql", "002_sources_en_sommeil.sql"]
+    assert names[:3] == [
+        "001_create_sources.sql",
+        "002_sources_en_sommeil.sql",
+        "003_create_articles_vus.sql",
+    ]
     assert [m.version for m in available_migrations()] == sorted(
         m.version for m in available_migrations()
     )
@@ -86,3 +90,20 @@ def test_failure_counter_wake_and_sleeping_view(pg_dsn):
     assert repo.wake("gazette-en-panne").consecutive_failures == 0
     with connect(pg_dsn) as conn:
         assert conn.execute("SELECT count(*) FROM sources_en_sommeil").fetchone()[0] == 0
+
+
+def test_article_index_round_trip(pg_dsn):
+    from datetime import date
+
+    with connect(pg_dsn) as conn:
+        migrate(conn)
+    PostgresSourceRepository(pg_dsn).seed(load_sources(FIXTURES / "sources.csv"))
+    index = PostgresArticleIndex(pg_dsn)
+
+    assert index.unseen(["a", "b"]) == {"a", "b"}
+    index.add("Journal Régional", ["a"], date(2026, 10, 21))
+    index.add("Journal Régional", ["a", "b"], date(2026, 10, 22))  # « a » ignoré, pas d'erreur
+    assert index.unseen(["a", "b", "c"]) == {"c"}
+    with connect(pg_dsn) as conn:
+        rows = conn.execute("SELECT id, premiere_collecte FROM articles_vus ORDER BY id").fetchall()
+    assert rows == [("a", date(2026, 10, 21)), ("b", date(2026, 10, 22))]

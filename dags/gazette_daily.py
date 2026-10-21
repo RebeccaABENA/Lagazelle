@@ -49,7 +49,7 @@ def gazette_daily():
     )
     def collect(slug: str, day: str) -> dict:
         from gazette.collect.fetcher import PoliteFetcher
-        from gazette.collect.runner import collect_source, default_repository
+        from gazette.collect.runner import collect_source, default_index, default_repository
         from gazette.config import load_settings
 
         context = get_current_context()
@@ -67,6 +67,7 @@ def gazette_daily():
                 date.fromisoformat(day),
                 fetcher,
                 repo,
+                default_index(settings),
                 final_attempt=final_attempt,
             )
         if result.status == "failed":

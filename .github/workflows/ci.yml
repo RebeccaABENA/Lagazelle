@@ -61,6 +61,12 @@ jobs:
           docker compose config --quiet
       - name: Construire l'image Airflow
         run: docker compose build
+      # Le DagBag lit la base de métadonnées : postgres + airflow-init (migrations
+      # Airflow, migrations gazette et amorçage de la table sources) sont nécessaires.
+      - name: Initialiser les bases (airflow-init)
+        run: |
+          docker compose up -d --wait postgres
+          docker compose run --rm airflow-init
       - name: Vérifier le DAG dans l'image
         run: |
           set -o pipefail
