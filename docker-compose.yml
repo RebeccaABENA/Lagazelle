@@ -21,6 +21,8 @@ x-airflow-common: &airflow-common
     # Machine d'étudiant (8 Go) : on limite le parallélisme et les workers HTTP.
     AIRFLOW__CORE__PARALLELISM: "4"
     AIRFLOW__API__WORKERS: "1"
+    # Un seul DAG, qui change rarement : le reparser toutes les 2 min suffit (CPU au repos).
+    AIRFLOW__DAG_PROCESSOR__MIN_FILE_PROCESS_INTERVAL: "120"
     # Chemins du paquet gazette dans le conteneur (prioritaires sur .env).
     GAZETTE_DATA_DIR: /opt/gazette/data
     GAZETTE_SOURCES_FILE: /opt/gazette/sources.csv
@@ -60,9 +62,12 @@ services:
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
-      start_period: 30s
+      # Démarrage à froid mesuré à ~3,5 min sur une machine 8 Go : le scheduler et
+      # le dag-processor l'attendent, il ne doit pas être déclaré unhealthy trop tôt.
+      start_period: 300s
+      start_interval: 10s
     restart: unless-stopped
     depends_on:
       <<: *airflow-common-depends-on
@@ -75,7 +80,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
       start_period: 30s
     restart: unless-stopped
@@ -83,6 +88,9 @@ services:
       <<: *airflow-common-depends-on
       airflow-init:
         condition: service_completed_successfully
+      # Les tâches s'enregistrent auprès de l'API d'exécution dès leur lancement.
+      airflow-apiserver:
+        condition: service_healthy
 
   airflow-dag-processor:
     <<: *airflow-common
@@ -90,7 +98,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
       start_period: 30s
     restart: unless-stopped
@@ -98,6 +106,9 @@ services:
       <<: *airflow-common-depends-on
       airflow-init:
         condition: service_completed_successfully
+      # Les tâches s'enregistrent auprès de l'API d'exécution dès leur lancement.
+      airflow-apiserver:
+        condition: service_healthy
 
   # Migration de la base, création du compte admin, droits sur les volumes. S'arrête ensuite.
   airflow-init:
