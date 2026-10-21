@@ -127,6 +127,8 @@ services:
         echo "Base gazette : migrations et amorçage de la table sources"
         python -m gazette db migrate
         python -m gazette db seed --csv /opt/gazette/sources.csv
+        echo "Pool Airflow gazette_editeurs (1 place : jamais 2 requêtes simultanées vers un éditeur)"
+        /entrypoint airflow pools set gazette_editeurs 1 "Collecte : une source à la fois"
     environment:
       <<: *airflow-common-env
       _AIRFLOW_DB_MIGRATE: "true"

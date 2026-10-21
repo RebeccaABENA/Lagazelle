@@ -1,4 +1,7 @@
-"""DAG quotidien de La gazette : collecte des flux RSS à 5 h (heure de Paris).
+"""DAG de La gazette : collecte des flux RSS toutes les 30 minutes (heure de Paris).
+
+Le nom `gazette_daily` est conservé (historique des runs) ; les fichiers bruts
+restent organisés par jour de collecte, chaque passage y fusionne ses articles.
 
 Aucune logique métier ici : le DAG appelle les fonctions du paquet `gazette`,
 qui fonctionnent aussi sans Airflow (`python -m gazette collect`).
@@ -14,24 +17,33 @@ from airflow.sdk.exceptions import AirflowFailException
 from airflow.timetables.trigger import CronTriggerTimetable
 
 PARIS = pendulum.timezone("Europe/Paris")
+# Pool à 1 place, créé par airflow-init : une seule tâche de collecte à la fois,
+# donc jamais deux requêtes en parallèle vers un même éditeur (8 flux, < 1 min).
+COLLECT_POOL = "gazette_editeurs"
+
+
+def _paris_date(context) -> str:
+    """Jour de collecte = date (heure de Paris) à laquelle le run est prévu."""
+    run_after = context["dag_run"].run_after
+    return pendulum.instance(run_after).in_timezone(PARIS).date().isoformat()
 
 
 @dag(
     dag_id="gazette_daily",
-    description="Collecte quotidienne des flux RSS PQR/PQN et stockage brut",
-    schedule=CronTriggerTimetable("0 5 * * *", timezone=PARIS),
+    description="Collecte des flux RSS PQR/PQN toutes les 30 min et stockage brut",
+    schedule=CronTriggerTimetable("*/30 * * * *", timezone=PARIS),
     start_date=pendulum.datetime(2026, 10, 1, tz=PARIS),
     catchup=False,
     max_active_runs=1,
+    # Un run ne doit jamais chevaucher le suivant.
+    dagrun_timeout=timedelta(minutes=25),
     default_args={"owner": "la-gazette"},
     tags=["gazette", "collecte"],
 )
 def gazette_daily():
     @task
     def collection_date() -> str:
-        """Jour de collecte = date (heure de Paris) à laquelle le run est prévu."""
-        run_after = get_current_context()["dag_run"].run_after
-        return pendulum.instance(run_after).in_timezone(PARIS).date().isoformat()
+        return _paris_date(get_current_context())
 
     @task
     def list_sources() -> list[str]:
@@ -45,6 +57,7 @@ def gazette_daily():
         retries=2,
         retry_delay=timedelta(minutes=2),
         retry_exponential_backoff=True,
+        pool=COLLECT_POOL,
         map_index_template="{{ source_slug }}",
     )
     def collect(slug: str, day: str) -> dict:
@@ -78,11 +91,13 @@ def gazette_daily():
         return result.model_dump()
 
     @task(trigger_rule="all_done")
-    def write_manifest(day: str) -> dict:
-        """S'exécute même si des sources ont échoué : elles apparaissent en échec."""
+    def write_manifest(day: str | None) -> dict:
+        """S'exécute même si des sources ont échoué : elles apparaissent en échec.
+        Si `collection_date` a elle-même échoué, `day` vaut None : on recalcule la date."""
         from gazette.collect.runner import default_repository, finalize
         from gazette.config import load_settings
 
+        day = day or _paris_date(get_current_context())
         settings = load_settings()
         return finalize(settings, date.fromisoformat(day), default_repository(settings))["summary"]
 

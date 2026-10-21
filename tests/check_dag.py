@@ -20,11 +20,20 @@ dag = bag.get_dag("gazette_daily")
 assert dag is not None, "DAG gazette_daily introuvable"
 assert dag.catchup is False
 assert dag.max_active_runs == 1
-assert dag.timetable.summary == "0 5 * * *"
+assert dag.timetable.summary == "*/30 * * * *"
+assert dag.dagrun_timeout.total_seconds() == 25 * 60
 assert str(dag.timezone) in ("Europe/Paris", "Timezone('Europe/Paris')")
 
 tasks = {t.task_id: t for t in dag.tasks}
 assert set(tasks) == {"collection_date", "list_sources", "collect", "write_manifest"}
 assert tasks["collect"].partial_kwargs["retries"] == 2
+assert tasks["collect"].partial_kwargs["pool"] == "gazette_editeurs"
 assert tasks["write_manifest"].trigger_rule == "all_done"
 print("DAG gazette_daily OK :", sorted(tasks))
+
+# Le pool doit exister en base (créé par airflow-init) avec une seule place.
+from airflow.models.pool import Pool  # noqa: E402
+
+pool = Pool.get_pool("gazette_editeurs")
+assert pool is not None and pool.slots == 1, pool
+print("Pool gazette_editeurs OK : 1 place")
