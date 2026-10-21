@@ -1,0 +1,11 @@
+# Dépendances runtime du paquet `gazette`.
+# Versions alignées sur les contraintes officielles d'Airflow 3.3.2 / Python 3.12
+# (https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt),
+# sauf feedparser qui n'y figure pas.
+feedparser==6.0.14
+httpx==0.28.1
+tenacity==9.1.4
+pydantic==2.13.5
+python-dotenv==1.2.3
+# Base IANA des fuseaux horaires (absente de Windows, nécessaire à zoneinfo)
+tzdata==2026.4

@@ -1,0 +1,28 @@
+# Secrets locaux
+.env
+
+# Données collectées (seul le squelette est versionné)
+data/*
+!data/raw/
+data/raw/*
+!data/raw/.gitkeep
+
+# Airflow
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Éditeurs / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
