@@ -1,0 +1,1 @@
+"""Stockage des données collectées."""
