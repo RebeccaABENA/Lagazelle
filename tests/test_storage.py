@@ -205,3 +205,11 @@ def test_one_log_line_per_source_with_counts(
     failed = next(line for line in lines if "gazette-en-panne" in line)
     assert "statut=failed http=500" in failed
     assert "erreur_type=transitoire" in failed and "echecs_consecutifs=1" in failed
+
+
+def test_manifest_entries_share_the_same_keys(settings, healthy_web, make_fetcher, repo, index):
+    for _ in range(3):  # la source en panne passe en sommeil
+        manifest = run_collection(settings, DAY, fetcher=make_fetcher(), repo=repo, index=index)
+    keys = [set(entry) for entry in manifest["sources"]]
+    assert {e["status"] for e in manifest["sources"]} == {"ok", "sleeping"}
+    assert all(k == keys[0] for k in keys)

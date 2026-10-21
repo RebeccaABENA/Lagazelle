@@ -149,7 +149,9 @@ def write_manifest(
                 "file": relative_source_file(source),
                 "status": "sleeping",
                 "http_status": None,
+                "received": 0,
                 "new_items": 0,
+                "ignored": 0,
                 "items_total": count_items(path),
                 "error": (
                     f"en sommeil après {source.consecutive_failures} échecs consécutifs ; "
@@ -168,7 +170,9 @@ def write_manifest(
                 "file": relative_source_file(source),
                 "status": "failed",
                 "http_status": None,
+                "received": 0,
                 "new_items": 0,
+                "ignored": 0,
                 "items_total": count_items(path),
                 "error": "aucun résultat : collecte non exécutée ou interrompue",
                 "started_at": None,

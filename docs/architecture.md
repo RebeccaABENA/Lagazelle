@@ -1,10 +1,12 @@
 # Architecture — La gazette
 
 > **Mise à jour (2026-10-21) — stack effectivement implémentée.** L'orchestration est assurée par
-> **Apache Airflow 3** (LocalExecutor) et non par Prefect. Le stockage brut est un **fichier JSON par
-> source et par jour** (`data/raw/<date>/<pqr|pqn>/<slug>.json`) avec un `_manifest.json`, et non du
-> JSON Lines. PostgreSQL 16 + pgvector héberge la base `airflow` et la base `gazette`. Il y a
-> **8 sources** (4 PQR, 4 PQN). Le reste du document décrit la cible des étapes suivantes.
+> **Apache Airflow 3** (LocalExecutor) et non par Prefect, avec une collecte **toutes les 30 minutes**.
+> Les articles bruts sont des **fichiers JSON par source et par jour** (`data/raw/<date>/<pqr|pqn>/<slug>.json`)
+> avec un `_manifest.json`. PostgreSQL 16 + pgvector héberge la base `airflow` et la base `gazette`,
+> qui contient pour l'instant la table `sources` (état de collecte) et l'index `articles_vus`
+> (déduplication). Il y a **8 sources** (4 PQR, 4 PQN). Les champs sont décrits dans
+> [`donnees.md`](donnees.md). Le reste du document décrit la cible des étapes suivantes.
 
 Pipeline quotidien : les flux RSS de la presse sont collectés à 5 h, regroupés par thèmes, puis l'édition est publiée à 7 h. Tout tourne en local sous Docker Compose et Prefect orchestre les étapes.
 
