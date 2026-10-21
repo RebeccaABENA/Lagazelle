@@ -1,0 +1,5 @@
+nom;type;region;acces;conditions;notes;active
+Journal Régional;PQR;Ouest;https://pqr.example.fr/rss.xml;test;;true
+L'Écho National;PQN;Nationale;https://pqn.example.fr/rss/une.xml;test;;true
+Gazette en Panne;PQR;Sud;https://panne.example.fr/rss.xml;test;;true
+Source Désactivée;PQN;Nationale;https://off.example.fr/rss.xml;test;;false

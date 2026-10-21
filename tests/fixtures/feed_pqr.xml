@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Journal régional de test</title>
+    <link>https://pqr.example.fr/</link>
+    <description>Flux d'exemple pour les tests (aucun appel réseau)</description>
+    <item>
+      <title>Un pont rouvre à Rennes</title>
+      <link>https://pqr.example.fr/rennes/pont-rouvre?utm_source=rss&amp;utm_medium=feed</link>
+      <description><![CDATA[<p>Après six mois de travaux, <b>le pont</b> rouvre.</p>]]></description>
+      <pubDate>Wed, 21 Oct 2026 04:30:00 +0200</pubDate>
+      <dc:creator>Jeanne Reporter</dc:creator>
+      <author>jeanne@pqr.example.fr (Jeanne Reporter)</author>
+      <comments>https://pqr.example.fr/rennes/pont-rouvre#comments</comments>
+    </item>
+    <item>
+      <title>Marché de nuit à Nantes</title>
+      <link>https://pqr.example.fr/nantes/marche-de-nuit</link>
+      <description>Le marché de nuit revient samedi.</description>
+      <content:encoded><![CDATA[<p>TEXTE INTÉGRAL DE L'ARTICLE qui ne doit jamais être stocké.</p>]]></content:encoded>
+      <pubDate>Tue, 20 Oct 2026 18:00:00 +0200</pubDate>
+    </item>
+    <item>
+      <title>Doublon du pont (même URL canonique)</title>
+      <link>https://PQR.example.fr/rennes/pont-rouvre#haut</link>
+      <description>Même article, autre URL de suivi.</description>
+    </item>
+    <item>
+      <title>Article sans extrait</title>
+      <link>https://pqr.example.fr/brest/sans-extrait</link>
+      <content:encoded><![CDATA[<p>TEXTE INTÉGRAL recopié par feedparser dans summary.</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>Item sans lien, ignoré</title>
+      <description>Pas de lien.</description>
+    </item>
+  </channel>
+</rss>

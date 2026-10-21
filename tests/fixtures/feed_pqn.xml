@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Quotidien national de test</title>
+    <link>https://pqn.example.fr/</link>
+    <description>Flux d'exemple</description>
+    <item>
+      <title>Budget : le texte arrive au Sénat</title>
+      <link>https://pqn.example.fr/politique/budget-senat</link>
+      <description>Le projet de loi de finances est examiné cette semaine.</description>
+      <pubDate>Wed, 21 Oct 2026 06:00:00 +0200</pubDate>
+    </item>
+    <item>
+      <title>Climat : un rapport alarmant</title>
+      <link>https://pqn.example.fr/planete/rapport-climat</link>
+      <description>Les experts publient leurs conclusions.</description>
+      <pubDate>Wed, 21 Oct 2026 05:15:00 +0200</pubDate>
+    </item>
+  </channel>
+</rss>

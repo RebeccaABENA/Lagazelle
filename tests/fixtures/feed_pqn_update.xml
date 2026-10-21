@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Quotidien national de test</title>
+    <link>https://pqn.example.fr/</link>
+    <description>Flux d'exemple, deuxième passage : un item nouveau, un déjà vu</description>
+    <item>
+      <title>Sport : victoire en coupe d'Europe</title>
+      <link>https://pqn.example.fr/sport/victoire</link>
+      <description>Une soirée historique.</description>
+      <pubDate>Wed, 21 Oct 2026 07:45:00 +0200</pubDate>
+    </item>
+    <item>
+      <title>Budget : le texte arrive au Sénat</title>
+      <link>https://pqn.example.fr/politique/budget-senat</link>
+      <description>Le projet de loi de finances est examiné cette semaine.</description>
+      <pubDate>Wed, 21 Oct 2026 06:00:00 +0200</pubDate>
+    </item>
+  </channel>
+</rss>
