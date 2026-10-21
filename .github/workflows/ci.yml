@@ -62,7 +62,13 @@ jobs:
       - name: Construire l'image Airflow
         run: docker compose build
       - name: Vérifier le DAG dans l'image
-        run: >
-          docker compose run --rm --no-deps -T
-          -v "$PWD/tests:/opt/gazette/tests:ro"
-          --entrypoint python airflow-scheduler /opt/gazette/tests/check_dag.py
+        run: |
+          set -o pipefail
+          if ! docker compose run --rm --no-deps -T \
+               -v "$PWD/tests:/opt/gazette/tests:ro" \
+               --entrypoint python airflow-scheduler /opt/gazette/tests/check_dag.py \
+               2>&1 | tee dag-check.log; then
+            # Fin de la sortie en annotation, lisible sans ouvrir les logs du job.
+            echo "::error title=check_dag::$(tail -c 2500 dag-check.log | tr '\n' ' ')"
+            exit 1
+          fi
