@@ -40,6 +40,10 @@ class Settings(BaseModel):
         return self.data_dir / "state"
 
     @property
+    def reports_dir(self) -> Path:
+        return self.data_dir / "rapports"
+
+    @property
     def tz(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
 

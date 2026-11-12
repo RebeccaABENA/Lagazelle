@@ -1,6 +1,7 @@
 """Ligne de commande.
 
 python -m gazette collect [--date AAAA-MM-JJ] [--source SLUG ...] [--strict]
+python -m gazette clean [--date AAAA-MM-JJ]
 python -m gazette db migrate
 python -m gazette db seed [--csv sources.csv]
 python -m gazette sources list
@@ -40,6 +41,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--strict",
         action="store_true",
         help="code retour 1 dès qu'une source échoue (défaut : seulement si toutes échouent)",
+    )
+
+    clean = sub.add_parser(
+        "clean", help="nettoie le brut d'un jour : articles propres, rejets, rapport de qualité"
+    )
+    clean.add_argument(
+        "--date",
+        type=date.fromisoformat,
+        help="jour de collecte AAAA-MM-JJ (défaut : aujourd'hui, heure de Paris)",
     )
 
     db = sub.add_parser("db", help="base gazette : migrations et amorçage")
@@ -82,6 +92,25 @@ def _cmd_collect(args: argparse.Namespace, settings: Settings) -> int:
     )
     if summary["failed"] and (args.strict or summary["failed"] == summary["sources"]):
         return 1
+    return 0
+
+
+def _cmd_clean(args: argparse.Namespace, settings: Settings) -> int:
+    from gazette.clean.pipeline import run_cleaning
+
+    report = run_cleaning(settings, args.date)
+    print(f"\nNettoyage du {report['jour']}")
+    print(
+        f"  {report['entres']} entrés, {report['gardes']} gardés, "
+        f"{report['rejetes']} rejetés ({report['taux_rejet'] * 100:.0f} %)"
+    )
+    for rule, stats in report["par_regle"].items():
+        if stats["rejetes"]:
+            print(f"  {rule:<24} {stats['rejetes']}")
+    for watch in report["regles_a_surveiller"]:
+        share = f"{watch['part'] * 100:.0f} %"
+        print(f"  à surveiller : {watch['regle']} écarte {share} de {watch['source']}")
+    print(f"  Rapport : {settings.reports_dir / ('qualite-' + report['jour'] + '.md')}")
     return 0
 
 
@@ -143,7 +172,12 @@ def main(argv: list[str] | None = None) -> int:
     logging.getLogger("httpx").setLevel(logging.INFO if args.verbose else logging.WARNING)
 
     settings = load_settings()
-    handlers = {"collect": _cmd_collect, "db": _cmd_db, "sources": _cmd_sources}
+    handlers = {
+        "collect": _cmd_collect,
+        "clean": _cmd_clean,
+        "db": _cmd_db,
+        "sources": _cmd_sources,
+    }
     try:
         return handlers[args.command](args, settings)
     except ConfigError as exc:
