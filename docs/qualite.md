@@ -1,0 +1,80 @@
+# Qualité des données — La gazette
+
+> Brouillon du **2026-11-12**, établi sur la collecte du jour : **485 articles de 7 sources** (Ouest-France est exclue : son `robots.txt` interdit l'accès au flux). Tous les chiffres viennent des fichiers `data/articles_bruts/`. Les règles de la section 4 sont des **propositions**, pas encore implémentées.
+
+## 1. Inventaire du brut
+
+| Source | Articles | Avec rubrique | Extrait médian (car.) | > 24 h | > 48 h | > 7 jours |
+|---|---:|---:|---:|---:|---:|---:|
+| L'Obs | 239 | 234 | 223 | 211 | 177 | 108 |
+| La Dépêche du Midi | 115 | 115 | 217 | 5 | 2 | 2 |
+| Libération | 50 | 0 | 215 | 0 | 0 | 0 |
+| Le Dauphiné Libéré | 25 | 25 | 207 | 0 | 0 | 0 |
+| Le Figaro | 20 | 20 | 237 | 0 | 0 | 0 |
+| Sud Ouest | 20 | 0 | 175 | 0 | 0 | 0 |
+| Le Monde | 16 | 0 | 249 | 1 | 0 | 0 |
+| **Total** | **485** | 394 | | **217** | **179** | **110** |
+
+Ce qu'on retient :
+- **La forme est plutôt propre** : aucun HTML dans les titres ni les extraits, aucun encodage cassé (`Ã©`), aucun titre vide, aucune date future, aucun doublon exact de titre.
+- **Le vrai problème est le contenu** : quiz, promotions, directs, avis de décès, et surtout des articles **anciens** (44 % des articles ont plus de 24 h).
+- **L'Obs n'est pas un flux d'actualité** : 288 entrées reçues, dont des articles de mai 2026. Sur ses 239 articles écrits, 211 ont plus de 24 h (88 %).
+- **Le Monde, Libération et Sud Ouest ne renseignent aucune rubrique**. On peut la déduire du premier segment de l'URL (`/politique/`, `/economie/`…).
+
+## 2. Dix items qui n'ont rien à faire dans une gazette
+
+| # | Source | Titre | Pourquoi | Règle | id (8 car.) |
+|---:|---|---|---|---|---|
+| 1 | L'Obs | Quiz. COP31 : 12 questions sur le climat avant d’entamer les négociations | Quiz : un jeu, pas une information | `R01_quiz_jeux` | `61434e5a` |
+| 2 | L'Obs | Quiz. 12 questions sur Charles de Gaulle pour tester votre culture Général | Quiz : un jeu, pas une information | `R01_quiz_jeux` | `e835dc9e` |
+| 3 | L'Obs | Quiz. Goncourt 2026 : quinze questions sur le prix le plus renommé de la litt… | Quiz : un jeu, pas une information | `R01_quiz_jeux` | `5a7c1fb2` |
+| 4 | Le Figaro | Amazon vide ses stocks Nintendo Switch 2 : des consoles, manettes et jeux à p… | Promotion commerciale (rubrique « Bons plans ») | `R02_bons_plans` | `1cc6e412` |
+| 5 | Le Figaro | Black Friday : les billets d’avion en promo, c’est dès le 11 novembre (mais p… | Promotion commerciale (rubrique « Bons plans ») | `R02_bons_plans` | `df59c0c0` |
+| 6 | Le Monde | EN DIRECT, présidentielle 2027 \| Suivez le grand oral de huit candidats sur l… | Page de direct ou de replay, qui évolue en continu | `R03_direct_replay` | `35af7a98` |
+| 7 | La Dépêche du Midi | DIRECT. Présidentielle 2027 : à peine candidat, Teddy Riner est déjà rattrapé… | Page de direct ou de replay, qui évolue en continu | `R03_direct_replay` | `ea66579f` |
+| 8 | La Dépêche du Midi | Rafales de vent jusqu'à 70 km/h, pluies... Avec le passage de la tempête Char… | Service pratique local (météo, circulation) | `R04_services_locaux` | `463539cc` |
+| 9 | La Dépêche du Midi | "La montagne, ton terrain de jeux, t’a reprise bien trop tôt", Véronique Doye… | Avis de décès d'une personne nommée (donnée personnelle) | `R04_services_locaux` | `8b7b41b5` |
+| 10 | La Dépêche du Midi | La Dépêche du Midi lance son espace jeux : à vos neurones, prêts, jouez ! | Publié il y a plus d'un an : n'est pas de l'actualité | `R05_trop_ancien` | `8cb659bd` |
+
+Le préfixe d'`id` permet de retrouver l'article dans les fichiers bruts. Doublon approximatif repéré en plus : deux titres pour **un même événement** (liquidation judiciaire de Fibre Excellence à Saint-Gaudens) chez Libération et La Dépêche du Midi, avec une similarité de 0,75 (Jaccard sur les mots du titre).
+
+## 3. Défauts de forme (à corriger par la normalisation, pas à écarter)
+
+| Défaut | Constat | Traitement prévu |
+|---|---|---|
+| Espaces insécables (`U+00A0`, `U+202F`) avant `:`, `?`, `»` | 307 articles concernés | remplacés par une espace normale |
+| Doubles espaces | 8 articles | espaces réduites |
+| Entité HTML dans un extrait (`&quot;`) | 1 article (Le Dauphiné Libéré) | décodée |
+| Encodage cassé (`Ã©`, `â€`, `�`) | aucun dans les données | réparé par la normalisation (pas de règle d'exclusion) |
+| Extrait coupé à ~220 caractères et terminé par `…` | 101 sur 115 pour La Dépêche du Midi | gardé tel quel, signalé dans le rapport |
+| Extrait trop long | 47 articles de plus de 300 caractères, maximum 902 (L'Obs) | longueur bornée |
+| Extrait vide | 1 article (Sud Ouest) | gardé, signalé (le titre suffit) |
+| Dates | `+01:00` ou `+02:00` selon la saison, formats bruts variés (`+0100`, `GMT`) | converties en UTC |
+
+## 4. Règles d'exclusion proposées
+
+Un identifiant par règle, pour que le rapport de qualité puisse compter les rejets règle par règle.
+
+| Règle | Ce qu'elle écarte | Pourquoi | Exemple réel | Écartés (sur 485) |
+|---|---|---|---|---:|
+| `R01_quiz_jeux` | rubrique « Les jeux du Nouvel Obs », ou titre commençant par « Quiz » | un jeu n'est pas une information | « Quiz. COP31 : 12 questions sur le climat avant d’entamer le… » | 12 |
+| `R02_bons_plans` | rubrique ou section d'URL `bons-plans` | promotions commerciales, souvent des liens d'affiliation | « Amazon vide ses stocks Nintendo Switch 2 : des consoles, ma… » | 11 |
+| `R03_direct_replay` | titre commençant par `EN DIRECT`, `DIRECT` ou `REPLAY` | page qui évolue en continu, sans contenu stable | « EN DIRECT, présidentielle 2027 \| Suivez le grand oral de hu… » | 7 |
+| `R04_services_locaux` | rubriques Météo, Circulation, Carnet noir | service pratique, et noms de personnes dans le carnet | « Rafales de vent jusqu'à 70 km/h, pluies... Avec le passage… » | 3 |
+| `R05_trop_ancien` | article publié il y a plus de **N heures** (seuil dans la configuration) | une gazette du jour ne reprend pas l'ancien | « La Dépêche du Midi lance son espace jeux : à vos neuro… » (2025) | 217 à 24 h, 179 à 48 h, 110 à 7 jours |
+| `R06_doublon_approx` | titre dont la similarité (Jaccard sur les mots) dépasse un seuil avec un article déjà gardé | même événement repris par deux titres | Fibre Excellence, Libération / La Dépêche | 1 |
+| `R07_horoscope` | titre, rubrique ou section d'URL contenant le mot `horoscope` ou `astrologie` (mot entier) | prévision astrale : ni information ni actualité | *« Horoscope du jeudi 12 novembre : Bélier, Taureau… » (exemple type, aucun dans les données, testé sur fixture)* | 0 |
+| `R08_date_future` | date de publication postérieure à la collecte | date fausse | *aucune dans les données, testée sur fixture* | 0 |
+| `R09_programme_tv` | titre, rubrique ou section d'URL annonçant un programme télé (« programme TV », « ce soir à la télé », `/programme-tv/`) | grille de programmes : un service, pas une information | *« Programme TV du jeudi 12 novembre : que regarder ce soir ? » (exemple type, aucun dans les données, testé sur fixture)* | 0 |
+| `R10_publi_reportage` | « publi-reportage », « advertorial », « contenu sponsorisé », « article sponsorisé », section d'URL `/publi-reportage/` | publicité présentée comme un article | *« Publi-reportage : comment bien choisir sa mutuelle » (exemple type, aucun dans les données, testé sur fixture)* | 0 |
+| `R11_contenu_partenaire` | « contenu partenaire », « contenu de marque », « brand content », section d'URL `/partenaire/` | contenu fourni par un annonceur, droits de republication non garantis | *« Contenu partenaire : les assurances en 2027 » (exemple type, aucun dans les données, testé sur fixture)* | 0 |
+
+**Seuil d'âge (R05).** Il faut le choisir avec le garde-fou « le taux de rejet d'une source ne dépasse pas 80 % » : pour L'Obs, un seuil de 24 h rejetterait 88 % de ses articles (alerte), 48 h 74 %, 7 jours 45 %.
+
+## 5. Ce qu'on n'a pas trouvé
+
+Dans cette collecte, il n'y a **aucun** horoscope, programme TV, publi-reportage ou contenu partenaire déclaré, titre vide, date future ou doublon exact. Les « critiques TéléObs » de L'Obs (17 articles) sont des critiques de séries, pas des programmes : on les garde. Ces cas restent couverts par des règles préventives (`R07_horoscope`, `R09_programme_tv`, `R10_publi_reportage` et `R11_contenu_partenaire`) et des tests sur fixtures, au cas où un flux les produirait un jour. Un titre vide n'a pas de règle : il serait détecté par le contrôle de données « aucun titre vide » (étape 4 du TD).
+
+## 6. Point de vigilance : données personnelles
+
+Les rubriques Justice, Faits divers et Accidents (42 articles ici) citent parfois des personnes nommées dans le titre. Les règles de ce document n'y touchent pas. Il faudra décider, avec la conformité du TD 4, ce qu'on garde (nom, initiales) et l'écrire dans `donnees.md`.
