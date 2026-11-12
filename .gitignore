@@ -6,6 +6,10 @@ data/*
 !data/articles_bruts
 data/articles_bruts/*
 !data/articles_bruts/.gitkeep
+!data/rapports/
+data/rapports/*
+!data/rapports/.gitkeep
+!data/rapports/*.md
 
 # Airflow
 logs/
