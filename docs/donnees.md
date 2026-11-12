@@ -2,10 +2,13 @@
 
 Ce document décrit tout ce que la collecte écrit : les **articles bruts** (fichiers JSON) et l'**état de la collecte** (base PostgreSQL `gazette`). Pour chaque champ, il précise son type, son origine dans le flux et ses règles.
 
+Les sections 4 à 8 forment le **contrat des données nettoyées** (TD 4) : tables `articles_propres`, `rejets` et `controles`, garanties, traçabilité et rétention. Les règles de tri sont dans [`qualite.md`](qualite.md).
+
 ## Ce qu'on ne stocke jamais
 
 - **Le texte intégral.** Ni `content:encoded` (RSS) ni `<content>` (Atom). Quand un flux ne fournit que le contenu intégral, `resume` reste vide.
-- **Les données personnelles.** Ni auteurs (`author`, `dc:creator`, `<author>`), ni contributeurs, ni commentaires, ni profils. Le `payload` est construit par liste blanche, pour qu'aucun champ inattendu ne passe.
+- **Les données personnelles.** Ni auteurs (`author`, `dc:creator`, `<author>`), ni contributeurs, ni commentaires, ni profils. Le `payload` est construit par liste blanche, pour qu'aucun champ inattendu ne passe. Au nettoyage, la rubrique Carnet (noms de particuliers) est écartée (`R04_services_locaux`).
+- **Plus qu'un extrait court dans les données propres.** `articles_propres.resume` est borné à 300 caractères (contrôle C09 à chaque passage).
 
 ## 1. Articles bruts (JSON)
 
@@ -132,3 +135,95 @@ C'est la vue `SELECT nom, type, url_flux, echecs_consecutifs, derniere_reussite 
 | Fichier | Rôle |
 |---|---|
 | `data/state/runs/<date>/<slug>.json` | Résultat du dernier passage de chaque source ; sert à construire le manifeste quand les sources sont collectées par des tâches Airflow séparées |
+| `data/state/alertes/<date>.json` | Contrôles en échec de la dernière alerte envoyée ce jour-là (une même alerte ne part qu'une fois par jour) |
+
+## 4. Données nettoyées (TD 4)
+
+```
+data/articles_bruts/<date>/ ──clean──▶ articles_propres (004)  rejets (005)
+                                       data/rapports/qualite-<date>.md|.json
+              ──quality_checks──▶      controles (006)
+                                       data/metrics/qualite.prom
+```
+
+Le nettoyage tourne **après chaque passage de collecte** (toutes les 30 min) et rejoue tout le
+jour de collecte. Un article est **soit** dans `articles_propres`, **soit** dans `rejets`,
+jamais dans les deux (une seule transaction ; si son verdict change, il change de table).
+Toutes les dates sont en `timestamptz` (UTC).
+
+### 4.1 `articles_propres` (migration 004)
+
+| Colonne | Type | Sens |
+|---|---|---|
+| `id` | `text`, clé primaire | même valeur que `items[].id` du brut |
+| `source` | `text` → `sources.nom` | source de l'article |
+| `lien` | `text` | lien de l'article, tel que fourni |
+| `titre` | `text` | nettoyé (encodage, entités, HTML, espaces) ; non vide : contrôle C02 |
+| `resume` | `text` | extrait nettoyé, **≤ 300 caractères** (contrôle C09), éventuellement vide |
+| `rubrique` | `text` ou null | rubrique du flux, nettoyée |
+| `publie_le` | `timestamptz` ou null | date de publication en UTC ; null si le flux n'en donne pas |
+| `recupere_le` | `timestamptz` | heure de la requête qui a ramené l'article |
+| `jour_collecte` | `date` | jour du dossier `data/articles_bruts/` |
+| `fichier_brut` | `text` | fichier d'origine, relatif à `data/articles_bruts/` (traçabilité) |
+| `nettoye_le` | `timestamptz` | dernier passage du nettoyage sur cet article |
+
+### 4.2 `rejets` (migration 005)
+
+Mêmes colonnes de provenance (`id`, `source`, `lien`, `titre`, `publie_le`, `recupere_le`,
+`jour_collecte`, `fichier_brut`), plus `regle` (première règle qui a rejeté l'article,
+`R01_quiz_jeux` … `R11_contenu_partenaire`), `raison` (ce qui l'a déclenchée) et `rejete_le`.
+
+### 4.3 `controles` (migration 006)
+
+Une ligne par contrôle et par passage : `jour_collecte`, `verifie_le`, `controle`, `gravite`
+(`critique` ou `avertissement`), `ok`, `valeur`, `seuil`, `detail`. Voir
+[`qualite.md` § 7](qualite.md).
+
+## 5. Garanties
+
+| Garantie | Comment |
+|---|---|
+| **Idempotence** | Rejouer le nettoyage d'un jour ne crée aucun doublon (clé `id`, `ON CONFLICT … DO UPDATE`) et donne le même rapport : les règles d'âge se calculent par rapport à `recupere_le`. |
+| **Atomicité** | Les écritures d'un passage sont dans une seule transaction ; rapports et métriques sont écrits dans un fichier temporaire puis renommés. |
+| **Unicité** | Un article n'est qu'une fois dans `articles_propres` (clé `id`, `articles_vus` à la collecte, règle R06, contrôle C10). |
+| **Fraîcheur** | Objectif : une édition à 7 h. R05 écarte ce qui a plus de 48 h à la collecte (seuil choisi sur les données réelles, `qualite.md` § 4), C06 le vérifie ; `gazette_qualite_dernier_passage_timestamp_seconds` permettra au TD 8 d'alerter si un passage manque. |
+| **Complétude** | Chaque article brut du jour est soit propre, soit rejeté (testé : `entres = gardes + rejetes`). |
+
+## 6. Traçabilité
+
+D'un article propre, on remonte au brut et à la source :
+
+```sql
+SELECT id, source, fichier_brut, recupere_le FROM articles_propres WHERE lien = 'https://…';
+```
+
+```bash
+# l'article brut correspondant, tel que publié par l'éditeur (payload compris)
+python -c "import json,sys; d=json.load(open('data/articles_bruts/'+sys.argv[1],encoding='utf-8')); print([i for i in d['items'] if i['id']==sys.argv[2]])" <fichier_brut> <id>
+```
+
+`source` mène à la table `sources` et à `sources.csv` (conditions d'utilisation). Pour un
+rejet, `regle` et `raison` disent pourquoi.
+
+## 7. Rétention
+
+Durées écrites dans `Retention` ([`src/gazette/clean/quality.py`](../src/gazette/clean/quality.py)),
+appliquées à chaque passage par la tâche `purge` (`python -m gazette purge --dry-run` pour simuler).
+
+| Donnée | Durée | Pourquoi |
+|---|---|---|
+| Brut `data/articles_bruts/<date>/`, `data/state/runs/<date>/`, `data/state/alertes/` | **90 jours** | rejouer un nettoyage ou un regroupement sans recontacter les éditeurs |
+| `rejets` | **30 jours** | sert à régler les règles ; ensuite, plus rien à en tirer |
+| `articles_propres`, `controles` | **365 jours** | historique des thèmes (TD 5-6) et de la qualité |
+| Rapports `data/rapports/` | **365 jours** | quelques Ko par jour ; ce sont les preuves d'exploitation |
+| `articles_vus` | non purgée | quelques octets par article ; la purger ferait réécrire de vieux articles |
+| Éditions publiées (TD 7) | en ligne **30 jours**, puis **stockage froid** | prévu : archive compressée mensuelle, puis le stockage objet de l'infrastructure fournie ; à mettre en œuvre au TD 7 |
+
+## 8. Choix techniques du TD 4
+
+| Besoin | Retenu | Alternatives écartées |
+|---|---|---|
+| Stockage propre | **PostgreSQL**, même base que `sources` (les vecteurs du TD 5 iront à côté, pgvector) | SQLite : pas d'accès concurrent propre depuis plusieurs tâches Airflow · Parquet : pas de requêtes ad hoc sur les rejets, pas de transactions |
+| Schéma | **migrations numérotées 004 à 006**, comme les tables de la collecte | tables créées au démarrage : ne gère pas l'évolution d'une colonne · Alembic : un outil de plus pour quelques fichiers SQL |
+| Rapport | **Markdown + JSON** (lisible sur GitHub, relisible par programme) | HTML : plus lourd · seulement en base : illisible sans requête |
+| Métriques | **fichier texte au format Prometheus** (rien à faire tourner aujourd'hui ; le TD 8 le collecte avec le *textfile collector* de node_exporter) | StatsD d'Airflow : métriques d'orchestration, pas métier · Pushgateway : un service de plus dès aujourd'hui |

@@ -30,6 +30,8 @@ class Settings(BaseModel):
     # Nombre total d'essais par requête (1 essai + 2 relances au plus).
     max_attempts: int = Field(3, ge=1, le=3)
     database_url: str | None = None
+    # Webhook Discord ou Slack où partent les alertes qualité (secret : seulement dans .env).
+    alert_webhook_url: str | None = None
 
     @property
     def raw_dir(self) -> Path:
@@ -42,6 +44,11 @@ class Settings(BaseModel):
     @property
     def reports_dir(self) -> Path:
         return self.data_dir / "rapports"
+
+    @property
+    def metrics_file(self) -> Path:
+        """Métriques qualité au format texte Prometheus (collectées au TD 8)."""
+        return self.data_dir / "metrics" / "qualite.prom"
 
     @property
     def tz(self) -> ZoneInfo:
@@ -74,6 +81,7 @@ _ENV_MAP = {
     "GAZETTE_DOMAIN_DELAY": "domain_delay",
     "GAZETTE_MAX_ATTEMPTS": "max_attempts",
     "GAZETTE_DATABASE_URL": "database_url",
+    "GAZETTE_ALERT_WEBHOOK_URL": "alert_webhook_url",
 }
 
 
