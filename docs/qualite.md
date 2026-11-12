@@ -137,7 +137,9 @@ fois par jour** : on réalerte seulement si la liste des contrôles en échec ch
 
 | Date | Déclencheur | Reçue sur | Délai | Capture |
 |---|---|---|---|---|
-| AAAA-MM-JJ | … | … | … | … |
+| 2026-11-12 15:59 | `C11_collecte` (avertissement) : Ouest-France en échec à la collecte, son `robots.txt` interdit l'accès au flux ; la source passe en sommeil après 3 échecs et les contrôles repassent au vert au passage suivant | Discord, serveur « la gazette » (salon vocal Général, puis webhook redirigé vers `# général` : test reçu à 16:11) | immédiat (même minute que le passage) | [alerte-2026-11-12.png](img/alerte-2026-11-12.png) |
+
+![Première alerte réelle, reçue sur Discord le 12 novembre 2026](img/alerte-2026-11-12.png)
 
 ### Choix de l'outil de contrôle
 
