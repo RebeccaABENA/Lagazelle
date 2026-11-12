@@ -36,7 +36,7 @@ Ce qu'on retient :
 | 9 | La Dépêche du Midi | "La montagne, ton terrain de jeux, t’a reprise bien trop tôt", Véronique Doye… | Avis de décès d'une personne nommée (donnée personnelle) | `R04_services_locaux` | `8b7b41b5` |
 | 10 | La Dépêche du Midi | La Dépêche du Midi lance son espace jeux : à vos neurones, prêts, jouez ! | Publié il y a plus d'un an : n'est pas de l'actualité | `R05_trop_ancien` | `8cb659bd` |
 
-Le préfixe d'`id` permet de retrouver l'article dans les fichiers bruts. Doublon approximatif repéré en plus : deux titres pour **un même événement** (liquidation judiciaire de Fibre Excellence à Saint-Gaudens) chez Libération et La Dépêche du Midi, avec une similarité de 0,75 (Jaccard sur les mots du titre).
+Le préfixe d'`id` permet de retrouver l'article dans les fichiers bruts. Deux doublons approximatifs repérés en plus, c'est-à-dire deux titres pour **un même événement** : la liquidation judiciaire de Fibre Excellence à Saint-Gaudens (Libération et La Dépêche du Midi, similarité 0,75) et l'émissaire britannique pour la sécurité climatique (Sud Ouest et Le Monde, 0,73). Similarité : Jaccard sur les mots du titre.
 
 ## 3. Défauts de forme (à corriger par la normalisation, pas à écarter)
 
@@ -47,9 +47,9 @@ Le préfixe d'`id` permet de retrouver l'article dans les fichiers bruts. Doublo
 | Entité HTML dans un extrait (`&quot;`) | 1 article (Le Dauphiné Libéré) | décodée |
 | Encodage cassé (`Ã©`, `â€`, `�`) | aucun dans les données | réparé par la normalisation (pas de règle d'exclusion) |
 | Extrait coupé à ~220 caractères et terminé par `…` | 101 sur 115 pour La Dépêche du Midi | gardé tel quel, signalé dans le rapport |
-| Extrait trop long | 47 articles de plus de 300 caractères, maximum 902 (L'Obs) | longueur bornée |
+| Extrait trop long | 47 articles de plus de 300 caractères, maximum 902 (L'Obs) | bornée à 300 caractères, coupée entre deux mots et terminée par `…` |
 | Extrait vide | 1 article (Sud Ouest) | gardé, signalé (le titre suffit) |
-| Dates | `+01:00` ou `+02:00` selon la saison, formats bruts variés (`+0100`, `GMT`) | converties en UTC |
+| Dates | `+01:00` ou `+02:00` selon la saison, formats bruts variés (`+0100`, `GMT`) | converties en UTC (`publie_le` et `recupere_le`) ; la valeur d'origine reste dans `payload` |
 
 ## 4. Règles d'exclusion proposées
 
@@ -61,8 +61,8 @@ Un identifiant par règle, pour que le rapport de qualité puisse compter les re
 | `R02_bons_plans` | rubrique ou section d'URL `bons-plans` | promotions commerciales, souvent des liens d'affiliation | « Amazon vide ses stocks Nintendo Switch 2 : des consoles, ma… » | 11 |
 | `R03_direct_replay` | titre commençant par `EN DIRECT`, `DIRECT` ou `REPLAY` | page qui évolue en continu, sans contenu stable | « EN DIRECT, présidentielle 2027 \| Suivez le grand oral de hu… » | 7 |
 | `R04_services_locaux` | rubriques Météo, Circulation, Carnet noir | service pratique, et noms de personnes dans le carnet | « Rafales de vent jusqu'à 70 km/h, pluies... Avec le passage… » | 3 |
-| `R05_trop_ancien` | article publié il y a plus de **N heures** (seuil dans la configuration) | une gazette du jour ne reprend pas l'ancien | « La Dépêche du Midi lance son espace jeux : à vos neuro… » (2025) | 217 à 24 h, 179 à 48 h, 110 à 7 jours |
-| `R06_doublon_approx` | titre dont la similarité (Jaccard sur les mots) dépasse un seuil avec un article déjà gardé | même événement repris par deux titres | Fibre Excellence, Libération / La Dépêche | 1 |
+| `R05_trop_ancien` | article publié il y a plus de **N heures** (seuil dans la configuration, 48 h par défaut) | une gazette du jour ne reprend pas l'ancien | « La Dépêche du Midi lance son espace jeux : à vos neuro… » (2025) | 204 à 24 h, 166 à 48 h, 100 à 7 jours |
+| `R06_doublon_approx` | titre dont la similarité (Jaccard sur les mots, seuil 0,7, titres d'au moins 4 mots) dépasse le seuil avec un article déjà gardé : le plus ancien est gardé | même événement repris par deux titres | Fibre Excellence (Libération / La Dépêche) ; émissaire britannique pour la sécurité climatique (Sud Ouest / Le Monde) | 2 |
 | `R07_horoscope` | titre, rubrique ou section d'URL contenant le mot `horoscope` ou `astrologie` (mot entier) | prévision astrale : ni information ni actualité | *« Horoscope du jeudi 12 novembre : Bélier, Taureau… » (exemple type, aucun dans les données, testé sur fixture)* | 0 |
 | `R08_date_future` | date de publication postérieure à la collecte | date fausse | *aucune dans les données, testée sur fixture* | 0 |
 | `R09_programme_tv` | titre, rubrique ou section d'URL annonçant un programme télé (« programme TV », « ce soir à la télé », `/programme-tv/`) | grille de programmes : un service, pas une information | *« Programme TV du jeudi 12 novembre : que regarder ce soir ? » (exemple type, aucun dans les données, testé sur fixture)* | 0 |
@@ -70,6 +70,8 @@ Un identifiant par règle, pour que le rapport de qualité puisse compter les re
 | `R11_contenu_partenaire` | « contenu partenaire », « contenu de marque », « brand content », section d'URL `/partenaire/` | contenu fourni par un annonceur, droits de republication non garantis | *« Contenu partenaire : les assurances en 2027 » (exemple type, aucun dans les données, testé sur fixture)* | 0 |
 
 **Seuil d'âge (R05).** Il faut le choisir avec le garde-fou « le taux de rejet d'une source ne dépasse pas 80 % » : pour L'Obs, un seuil de 24 h rejetterait 88 % de ses articles (alerte), 48 h 74 %, 7 jours 45 %.
+
+**Comptage.** Dans le rapport, un article n'est compté que pour la **première** règle qui le rejette (dans l'ordre R01, R02…). C'est pourquoi `R05_trop_ancien` compte moins d'articles que le nombre d'articles anciens : 13 quiz ou directs anciens sont comptés dans `R01_quiz_jeux` et `R03_direct_replay`. Avec le seuil de 48 h, 201 articles sont écartés sur 485 (41 %).
 
 ## 5. Ce qu'on n'a pas trouvé
 
