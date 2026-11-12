@@ -57,7 +57,7 @@ jobs:
           # Sous Linux, Airflow doit tourner avec l'UID de l'hôte et trouver ses dossiers
           # montés déjà créés, sinon Docker les crée en root (cf. README).
           echo "AIRFLOW_UID=$(id -u)" >> .env
-          mkdir -p logs data/raw
+          mkdir -p logs data/articles_bruts
           docker compose config --quiet
       - name: Construire l'image Airflow
         run: docker compose build

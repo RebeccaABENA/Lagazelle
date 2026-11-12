@@ -3,9 +3,9 @@
 
 # Données collectées (seul le squelette est versionné)
 data/*
-!data/raw/
-data/raw/*
-!data/raw/.gitkeep
+!data/articles_bruts
+data/articles_bruts/*
+!data/articles_bruts/.gitkeep
 
 # Airflow
 logs/

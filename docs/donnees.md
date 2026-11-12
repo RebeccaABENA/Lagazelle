@@ -12,8 +12,8 @@ Ce document décrit tout ce que la collecte écrit : les **articles bruts** (fic
 ### Emplacement
 
 ```
-data/raw/<AAAA-MM-JJ>/<pqr|pqn>/<slug>.json      un fichier par source et par jour
-data/raw/<AAAA-MM-JJ>/_manifest.json             bilan du jour, source par source
+data/articles_bruts/<AAAA-MM-JJ>/<pqr|pqn>/<slug>.json      un fichier par source et par jour
+data/articles_bruts/<AAAA-MM-JJ>/_manifest.json             bilan du jour, source par source
 ```
 
 - **Le jour** est la date de collecte en heure de Paris (`Europe/Paris`).
@@ -112,7 +112,7 @@ La table est amorcée depuis `sources.csv` par `python -m gazette db seed`. Ensu
 
 ### 2.2 `articles_vus` (migration 003)
 
-C'est l'index des articles déjà écrits dans `data/raw`, qui sert à dédupliquer d'un jour à l'autre. Les articles eux-mêmes restent en JSON.
+C'est l'index des articles déjà écrits dans `data/articles_bruts`, qui sert à dédupliquer d'un jour à l'autre. Les articles eux-mêmes restent en JSON.
 
 | Colonne | Type | Contrainte | Description |
 |---|---|---|---|

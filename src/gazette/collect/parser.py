@@ -26,7 +26,7 @@ class ParseError(ValueError):
 
 
 class Item(BaseModel):
-    """Un article brut, tel que stocké dans data/raw/<date>/<type>/<slug>.json."""
+    """Un article brut, tel que stocké dans data/articles_bruts/<date>/<type>/<slug>.json."""
 
     id: str
     source: str

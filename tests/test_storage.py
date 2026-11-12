@@ -41,6 +41,7 @@ def test_tree_and_file_names(settings, healthy_web, make_fetcher, repo, index):
     assert [f["new_items"] for f in doc["fetches"]] == [3]
     assert doc["fetches"][0]["http_status"] == 200
     assert len(doc["items"]) == 3
+    assert settings.raw_dir.name == "articles_bruts"
 
 
 def test_failing_source_does_not_block_others(settings, healthy_web, make_fetcher, repo, index):

@@ -124,7 +124,7 @@ services:
       - -c
       - |
         set -euo pipefail
-        mkdir -p /opt/airflow/logs /opt/gazette/data/raw /opt/gazette/data/state
+        mkdir -p /opt/airflow/logs /opt/gazette/data/articles_bruts /opt/gazette/data/state
         chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs /opt/gazette/data
         /entrypoint airflow version
         echo "Base gazette : migrations et amorçage de la table sources"

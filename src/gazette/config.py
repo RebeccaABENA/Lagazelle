@@ -33,7 +33,7 @@ class Settings(BaseModel):
 
     @property
     def raw_dir(self) -> Path:
-        return self.data_dir / "raw"
+        return self.data_dir / "articles_bruts"
 
     @property
     def state_dir(self) -> Path:

@@ -50,7 +50,7 @@ docker compose exec airflow-scheduler airflow dags unpause gazette_daily
 ```
 
 Le nom est hérité de la première version, où il tournait une fois par jour. Le DAG contient :
-- `collection_date` : le jour de collecte (heure de Paris), qui détermine le dossier `data/raw/<date>/` ;
+- `collection_date` : le jour de collecte (heure de Paris), qui détermine le dossier `data/articles_bruts/<date>/` ;
 - `list_sources` : les sources **actives et pas en sommeil**, lues dans la table `sources` ;
 - `collect` : une tâche par source (dynamic task mapping), dans le pool `gazette_editeurs` à 1 place. Chaque tâche a 2 relances. Une erreur permanente (robots.txt, 404, flux illisible) échoue tout de suite, sans relance ;
 - `write_manifest` : écrit `_manifest.json`, **même si des sources ont échoué** (`trigger_rule="all_done"`).
@@ -101,7 +101,7 @@ source=sud-ouest statut=failed http=503 recus=0 ecrits=0 ignores=0 duree=7.10s e
 ## Stockage brut
 
 ```
-data/raw/<AAAA-MM-JJ>/          jour de collecte, en heure de Paris
+data/articles_bruts/<AAAA-MM-JJ>/          jour de collecte, en heure de Paris
 ├── _manifest.json              bilan par source : statut, reçus/écrits/ignorés, erreur, durée
 ├── pqr/<slug>.json             un fichier par source ; chaque passage y ajoute une entrée « fetches »
 └── pqn/<slug>.json
