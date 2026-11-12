@@ -12,8 +12,9 @@ endif
 COMPOSE ?= docker compose
 # Date de collecte facultative : make collect DATE=2026-10-21
 DATE ?=
+DATE_ARG = $(if $(DATE),--date $(DATE),)
 
-.PHONY: help install up down logs collect test lint format
+.PHONY: help install up down logs collect clean check alert-test test lint format
 
 help:
 	@echo "install  virtualenv local + dépendances de dev"
@@ -21,6 +22,9 @@ help:
 	@echo "down     arrête la pile (les volumes sont conservés)"
 	@echo "logs     suit les journaux des conteneurs"
 	@echo "collect  collecte les flux hors Airflow (DATE=AAAA-MM-JJ facultatif)"
+	@echo "clean    nettoie le brut du jour -> articles_propres, rejets, rapport (DATE=…)"
+	@echo "check    contrôles de qualité, métriques, alerte (DATE=…)"
+	@echo "alert-test  envoie un message de test sur le webhook d'alerte"
 	@echo "test     lance pytest"
 	@echo "lint     ruff check + ruff format --check"
 
@@ -42,7 +46,16 @@ logs:
 	$(COMPOSE) logs -f --tail=100
 
 collect:
-	$(PYTHON) -m gazette collect $(if $(DATE),--date $(DATE),)
+	$(PYTHON) -m gazette collect $(DATE_ARG)
+
+clean:
+	$(PYTHON) -m gazette clean $(DATE_ARG)
+
+check:
+	$(PYTHON) -m gazette check $(DATE_ARG)
+
+alert-test:
+	$(PYTHON) -m gazette alert-test
 
 test:
 	$(PYTHON) -m pytest

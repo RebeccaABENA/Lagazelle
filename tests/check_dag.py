@@ -25,10 +25,22 @@ assert dag.dagrun_timeout.total_seconds() == 25 * 60
 assert str(dag.timezone) in ("Europe/Paris", "Timezone('Europe/Paris')")
 
 tasks = {t.task_id: t for t in dag.tasks}
-assert set(tasks) == {"collection_date", "list_sources", "collect", "write_manifest"}
+assert set(tasks) == {
+    "collection_date",
+    "list_sources",
+    "collect",
+    "write_manifest",
+    "clean",
+    "quality_checks",
+    "purge",
+}
 assert tasks["collect"].partial_kwargs["retries"] == 2
 assert tasks["collect"].partial_kwargs["pool"] == "gazette_editeurs"
 assert tasks["write_manifest"].trigger_rule == "all_done"
+assert tasks["clean"].trigger_rule == "all_done"
+assert "write_manifest" in tasks["clean"].upstream_task_ids
+assert "clean" in tasks["quality_checks"].upstream_task_ids
+assert tasks["purge"].trigger_rule == "all_done"
 assert all(t.retries == 2 for t in dag.tasks if t.task_id != "collect")
 print("DAG gazette_daily OK :", sorted(tasks))
 

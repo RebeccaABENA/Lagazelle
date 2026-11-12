@@ -2,6 +2,9 @@
 
 python -m gazette collect [--date AAAA-MM-JJ] [--source SLUG ...] [--strict]
 python -m gazette clean [--date AAAA-MM-JJ]
+python -m gazette check [--date AAAA-MM-JJ] [--no-alert]
+python -m gazette alert-test
+python -m gazette purge [--dry-run]
 python -m gazette db migrate
 python -m gazette db seed [--csv sources.csv]
 python -m gazette sources list
@@ -51,6 +54,19 @@ def _build_parser() -> argparse.ArgumentParser:
         type=date.fromisoformat,
         help="jour de collecte AAAA-MM-JJ (défaut : aujourd'hui, heure de Paris)",
     )
+
+    check = sub.add_parser(
+        "check", help="contrôles de qualité du jour (après clean) : historique, métriques, alerte"
+    )
+    check.add_argument(
+        "--date",
+        type=date.fromisoformat,
+        help="jour de collecte AAAA-MM-JJ (défaut : aujourd'hui, heure de Paris)",
+    )
+    check.add_argument("--no-alert", action="store_true", help="ne pas envoyer d'alerte")
+    sub.add_parser("alert-test", help="envoie un message de test sur le webhook d'alerte")
+    purge = sub.add_parser("purge", help="applique la rétention (brut, rejets, rapports…)")
+    purge.add_argument("--dry-run", action="store_true", help="liste sans supprimer")
 
     db = sub.add_parser("db", help="base gazette : migrations et amorçage")
     db_sub = db.add_subparsers(dest="db_command", required=True)
@@ -111,6 +127,37 @@ def _cmd_clean(args: argparse.Namespace, settings: Settings) -> int:
         share = f"{watch['part'] * 100:.0f} %"
         print(f"  à surveiller : {watch['regle']} écarte {share} de {watch['source']}")
     print(f"  Rapport : {settings.reports_dir / ('qualite-' + report['jour'] + '.md')}")
+    return 0
+
+
+def _cmd_check(args: argparse.Namespace, settings: Settings) -> int:
+    from gazette.clean.quality import run_quality_checks
+
+    summary = run_quality_checks(settings, args.date, alert=not args.no_alert)
+    for r in summary["resultats"]:
+        mark = "ok   " if r["ok"] else "ÉCHEC"
+        print(f"  {mark} {r['id']:<24} valeur {r['valeur']} / seuil {r['seuil']}")
+    if not summary["ok"]:
+        print(f"Alerte envoyée : {'oui' if summary['alerte_envoyee'] else 'non'}")
+    return 1 if summary["critiques_en_echec"] else 0
+
+
+def _cmd_alert_test(args: argparse.Namespace, settings: Settings) -> int:
+    from gazette.alert import send_alert
+
+    sent = send_alert(
+        settings.alert_webhook_url,
+        f"🧪 La gazette — test d'alerte ({settings.now().isoformat()}). "
+        "Si vous lisez ceci, le canal d'alerte fonctionne.",
+    )
+    print("Alerte envoyée." if sent else "Alerte NON envoyée (voir les journaux).")
+    return 0 if sent else 1
+
+
+def _cmd_purge(args: argparse.Namespace, settings: Settings) -> int:
+    from gazette.clean.quality import run_purge
+
+    print(run_purge(settings, dry_run=args.dry_run))
     return 0
 
 
@@ -175,6 +222,9 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         "collect": _cmd_collect,
         "clean": _cmd_clean,
+        "check": _cmd_check,
+        "alert-test": _cmd_alert_test,
+        "purge": _cmd_purge,
         "db": _cmd_db,
         "sources": _cmd_sources,
     }

@@ -80,3 +80,102 @@ Dans cette collecte, il n'y a **aucun** horoscope, programme TV, publi-reportage
 ## 6. Point de vigilance : données personnelles
 
 Les rubriques Justice, Faits divers et Accidents (42 articles ici) citent parfois des personnes nommées dans le titre. Les règles de ce document n'y touchent pas. Il faudra décider, avec la conformité du TD 4, ce qu'on garde (nom, initiales) et l'écrire dans `donnees.md`.
+
+## 7. Contrôles de qualité (après chaque passage)
+
+Les règles écartent ; les contrôles **vérifient des faits sur les vraies données**, relues
+dans `articles_propres` et `rejets` (même `CleanStore` que le nettoyage) juste après lui.
+Ils ne testent pas du code (la CI le fait sur fixture) : ils tournent en exploitation, dans la
+tâche Airflow `quality_checks`, à **chaque passage du DAG (toutes les 30 min)** :
+`collect → write_manifest → clean → quality_checks → purge`.
+Code : [`checks.py`](../src/gazette/clean/checks.py) et [`quality.py`](../src/gazette/clean/quality.py) ;
+seuils : `ChecksConfig`, qui reprend ceux de `RulesConfig` quand ils se recoupent.
+
+| Contrôle | Fait vérifié | Gravité |
+|---|---|---|
+| `C01_dates_futures` | aucun article publié après sa collecte (+ 10 min, comme R08) | critique |
+| `C02_titres_vides` | aucun titre vide (aucune règle ne les écarte, § 5) | critique |
+| `C03_taux_rejet_source` | le taux de rejet de chaque source (≥ 10 articles) ne dépasse pas 80 % | avertissement |
+| `C04_volume` | au moins 30 articles propres dans la journée, jugé à partir de 6 h | critique |
+| `C05_couverture_sources` | chaque source présente dans le brut a au moins un article gardé | avertissement |
+| `C06_fraicheur` | aucun article de plus de 48 h à la collecte (comme R05 ; date absente acceptée) | critique |
+| `C07_html_residuel` | aucune balise ni entité HTML dans les titres et extraits | critique |
+| `C08_encodage` | aucun encodage cassé, réparable (oublié) ou perdu (`�`) | critique |
+| `C09_extrait_borne` | aucun extrait de plus de 300 caractères (jamais de texte intégral) | critique |
+| `C10_titres_uniques` | aucun titre en double (titre replié) parmi les articles du jour | critique |
+| `C11_collecte` | aucune source en échec dans le manifeste de collecte | avertissement |
+
+- **Critique** : la donnée est fausse ; la tâche échoue (rouge dans Airflow) **après** avoir
+  alerté. Au TD 7, la livraison de l'édition dépendra de ce résultat.
+- **Avertissement** : quelque chose dérive ; on alerte, la tâche réussit.
+- **C03 et le seuil de R05** : à 48 h, L'Obs est rejeté à 74 % (§ 4), juste sous 80 %. Si
+  C03 sonne pour L'Obs, c'est le signe attendu que ce flux n'est pas un flux d'actualité : on
+  le note dans le journal (§ 9), on ne baisse pas le garde-fou.
+- **Contrôles et « Règles à surveiller »** : la section du rapport (§ 8) signale une règle
+  qui écarte plus de 50 % d'une source ; C03 regarde le taux de rejet total d'une source,
+  toutes règles confondues, et alerte.
+
+**Où vont les chiffres :** le résumé part en XCom de la tâche `quality_checks` (visible dans
+Airflow) ; l'historique dans la table `controles` (migration 006) ; les métriques dans
+`data/metrics/qualite.prom` (format texte Prometheus, que le TD 8 viendra collecter) ; le
+tableau des contrôles est ajouté à la fin du rapport du jour.
+
+### L'alerte
+
+Un webhook Discord ou Slack (`GAZETTE_ALERT_WEBHOOK_URL` dans `.env`, jamais commité), envoyé
+dès qu'un contrôle échoue. Le DAG passant toutes les 30 min, **une même alerte ne part qu'une
+fois par jour** : on réalerte seulement si la liste des contrôles en échec change (état dans
+`data/state/alertes/<date>.json`).
+
+**La déclencher pour de vrai :**
+1. créer le webhook sur le salon de l'équipe, coller l'URL dans `.env`, `docker compose up -d` ;
+2. tester le canal : `python -m gazette alert-test` ;
+3. faire échouer un contrôle : par exemple lancer `python -m gazette check` sur un jour peu
+   rempli après 6 h (C04), ou supprimer `data/state/alertes/<date>.json` pour renvoyer une
+   alerte déjà partie ;
+4. noter l'exercice ci-dessous, avec une capture.
+
+| Date | Déclencheur | Reçue sur | Délai | Capture |
+|---|---|---|---|---|
+| AAAA-MM-JJ | … | … | … | … |
+
+### Choix de l'outil de contrôle
+
+| Option | Pour | Contre | Choix |
+|---|---|---|---|
+| **Assertions maison** (11 fonctions sur les lignes relues en base) | ~250 lignes, aucune dépendance, testées sur fixture, résultats dans notre format (rapport, table, métriques) | l'historique et le rendu sont à écrire soi-même | ✅ retenu |
+| Great Expectations | attentes standard, « data docs » HTML | lourd (contexte, stores, checkpoints), dépendance importante à faire cohabiter avec les contraintes d'Airflow ; surdimensionné pour 11 faits | ✗ |
+| Soda Core (SodaCL) | contrôles déclaratifs en YAML/SQL | une syntaxe de plus ; alertes et métriques passent par Soda Cloud (payant), budget nul | ✗ |
+
+### Une alerte par jour et par échec
+
+| Option | Pour | Contre | Choix |
+|---|---|---|---|
+| **Une alerte par jour, tant que la liste des échecs ne change pas** | on est prévenu une fois, et de nouveau si la situation change | un petit fichier d'état (purgé avec le brut) | ✅ retenu |
+| Une alerte à chaque passage | simple | 48 messages par jour : plus personne ne les lit | ✗ |
+| Pas d'alerte, seulement le rapport | rien à configurer | personne ne le voit si personne ne l'ouvre | ✗ |
+
+## 8. Le rapport de qualité
+
+Chaque passage du nettoyage réécrit `data/rapports/qualite-AAAA-MM-JJ.md` et `.json`
+([`report.py`](../src/gazette/clean/report.py)) ; le dernier passage du jour est le bilan
+complet. Il donne les entrés, gardés et rejetés, les rejets par règle (toutes, même à 0) et par
+source, les cinq rejets les plus fréquents avec un exemple, et les **règles à surveiller**
+(une règle qui écarte au moins 50 % d'une source d'au moins 5 articles). Les contrôles y
+ajoutent leur tableau ✅ / ❌ (section « Contrôles de qualité »). Rapports gardés 365 jours.
+
+Pour lire les exemples d'une règle qui mord trop :
+
+```sql
+SELECT source, titre, raison, lien FROM rejets
+WHERE jour_collecte = CURRENT_DATE AND regle = 'R05_trop_ancien' ORDER BY source;
+```
+
+## 9. Journal des ajustements des règles
+
+Pour la prochaine séance : lire le rapport **trois matins de suite** et ajuster au moins une
+règle (`RulesConfig` ou les motifs de `rules.py`) ; chaque changement est noté ici.
+
+| Date | Règle | Constat (chiffres du rapport) | Changement | Effet observé |
+|---|---|---|---|---|
+| | | | | |
